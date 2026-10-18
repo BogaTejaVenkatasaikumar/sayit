@@ -80,14 +80,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           try {
             const audioFetch = await fetch(`${API_BASE}${data.audio.url}`);
             if (audioFetch.ok) {
-              const blob = await audioFetch.blob();
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                data.audio.dataUrl = reader.result;
-                sendResponse({ success: true, data });
-              };
-              reader.readAsDataURL(blob);
-              return;
+              const arrayBuffer = await audioFetch.arrayBuffer();
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = "";
+              const chunkSize = 8192;
+              for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+              }
+              data.audio.dataUrl = `data:audio/mp3;base64,${btoa(binary)}`;
             }
           } catch (audioErr) {
             console.warn("[SayIt Background] Audio conversion warning:", audioErr);
