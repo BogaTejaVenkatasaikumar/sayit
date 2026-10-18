@@ -11,20 +11,6 @@
 
   const LANGUAGES = [
     { code: "auto", name: "✨ Auto-Detect Language" },
-    { code: "en", name: "English" },
-    { code: "hi", name: "Hindi" },
-    { code: "te", name: "Telugu" },
-    { code: "ta", name: "Tamil" },
-    { code: "kn", name: "Kannada" },
-    { code: "ml", name: "Malayalam" },
-    { code: "bn", name: "Bengali" },
-    { code: "ar", name: "Arabic" },
-    { code: "ja", name: "Japanese" },
-    { code: "ko", name: "Korean" },
-    { code: "zh", name: "Chinese" },
-    { code: "fr", name: "French" },
-    { code: "de", name: "German" },
-    { code: "es", name: "Spanish" },
   ];
 
   const MEANING_LANGUAGES = [
@@ -629,10 +615,11 @@
 
     card.innerHTML = `
       <div class="sayit-header">
-        <div class="sayit-brand" style="display:flex;align-items:center;gap:8px;">
-          <img id="sayit-header-logo-img" src="${currentTheme === 'dark' ? LOGO_DARK : LOGO_LIGHT}" alt="sayit" style="height:22px;width:auto;pointer-events:none;" />
+        <div class="sayit-header-left" style="width:64px;display:flex;align-items:center;"></div>
+        <div class="sayit-brand" style="flex:1;display:flex;align-items:center;justify-content:center;">
+          <img id="sayit-header-logo-img" src="${currentTheme === 'dark' ? LOGO_DARK : LOGO_LIGHT}" alt="sayit" style="height:32px;width:auto;pointer-events:none;object-fit:contain;" />
         </div>
-        <div class="sayit-header-actions">
+        <div class="sayit-header-actions" style="width:64px;display:flex;align-items:center;justify-content:flex-end;gap:6px;">
           <button class="sayit-icon-btn" id="sayit-theme-btn" title="Toggle Dark / Light Mode">
             ${currentTheme === "dark" ? "☀️" : "🌙"}
           </button>

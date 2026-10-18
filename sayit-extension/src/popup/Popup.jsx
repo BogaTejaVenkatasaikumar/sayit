@@ -6,11 +6,11 @@ import { LOGO_LIGHT, LOGO_DARK } from "../assets/logos";
 // ── SayIt Brand Logo Component (Pixel-Perfect from uploaded brandmark) ────────
 function SayItLogo({ isDark }) {
   return (
-    <div className="flex items-center select-none py-0.5">
+    <div className="flex items-center justify-center select-none py-0.5">
       <img
         src={isDark ? LOGO_DARK : LOGO_LIGHT}
         alt="sayit"
-        className="h-7 w-auto object-contain pointer-events-none"
+        className="h-8 w-auto object-contain pointer-events-none"
       />
     </div>
   );
@@ -241,20 +241,6 @@ function MiniPlayer({ src, text, langCode, isDark }) {
 // ── Language list with Auto-Detect as default ────────────────────────────────
 const LANGUAGES = [
   { code: "auto", name: "✨ Auto-Detect Language" },
-  { code: "en", name: "English" },
-  { code: "hi", name: "Hindi" },
-  { code: "te", name: "Telugu" },
-  { code: "ta", name: "Tamil" },
-  { code: "kn", name: "Kannada" },
-  { code: "ml", name: "Malayalam" },
-  { code: "bn", name: "Bengali" },
-  { code: "ar", name: "Arabic" },
-  { code: "ja", name: "Japanese" },
-  { code: "ko", name: "Korean" },
-  { code: "zh", name: "Chinese" },
-  { code: "fr", name: "French" },
-  { code: "de", name: "German" },
-  { code: "es", name: "Spanish" },
 ];
 
 // ── Translatable Meaning Languages ──────────────────────────────────────────
@@ -390,23 +376,25 @@ export default function Popup() {
             : "border-neutral-200 bg-neutral-50/95 backdrop-blur-sm"
         }`}
       >
-        <div className="flex items-center gap-2.5">
+        <div className="w-16" />
+        <div className="flex-1 flex items-center justify-center">
           <SayItLogo isDark={isDark} />
         </div>
-
-        {/* Dark/Light Mode Toggle */}
-        <button
-          onClick={toggleTheme}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-            isDark
-              ? "bg-neutral-800 text-amber-400 hover:bg-neutral-700 border border-neutral-700"
-              : "bg-neutral-200/90 text-neutral-800 hover:bg-neutral-300 border border-neutral-300"
-          }`}
-          title={isDark ? "Switch to Orange & White" : "Switch to Orange & Black"}
-        >
-          {isDark ? <Sun size={13} className="text-amber-400" /> : <Moon size={13} className="text-neutral-700" />}
-          <span>{isDark ? "Light" : "Dark"}</span>
-        </button>
+        <div className="w-16 flex justify-end">
+          {/* Dark/Light Mode Toggle */}
+          <button
+            onClick={toggleTheme}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              isDark
+                ? "bg-neutral-800 text-amber-400 hover:bg-neutral-700 border border-neutral-700"
+                : "bg-neutral-200/90 text-neutral-800 hover:bg-neutral-300 border border-neutral-300"
+            }`}
+            title={isDark ? "Switch to Orange & White" : "Switch to Orange & Black"}
+          >
+            {isDark ? <Sun size={13} className="text-amber-400" /> : <Moon size={13} className="text-neutral-700" />}
+            <span>{isDark ? "Light" : "Dark"}</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Input & Language Selector */}
