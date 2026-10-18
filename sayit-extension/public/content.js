@@ -879,6 +879,7 @@
         </div>
         <div class="sayit-audio-controls">
           <div class="sayit-speed-selector">
+            <button class="sayit-speed-btn ${playbackSpeed === 0.5 ? 'active' : ''}" data-speed="0.5" title="0.5x speed">0.5x</button>
             <button class="sayit-speed-btn ${playbackSpeed === 0.75 ? 'active' : ''}" data-speed="0.75" title="0.75x speed">0.75x</button>
             <button class="sayit-speed-btn ${playbackSpeed === 1.0 ? 'active' : ''}" data-speed="1.0" title="Normal 1x speed">1x</button>
             <button class="sayit-speed-btn ${playbackSpeed === 1.25 ? 'active' : ''}" data-speed="1.25" title="1.25x speed">1.25x</button>

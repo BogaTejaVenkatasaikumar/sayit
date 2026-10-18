@@ -216,7 +216,7 @@ function MiniPlayer({ src, text, langCode, isDark }) {
         <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
           isDark ? "bg-[#1d1d22] border-neutral-700/80" : "bg-neutral-100 border-neutral-300"
         }`}>
-          {[0.75, 1, 1.25].map((s) => (
+          {[0.5, 0.75, 1, 1.25].map((s) => (
             <button
               key={s}
               onClick={() => handleSpeedChange(s)}

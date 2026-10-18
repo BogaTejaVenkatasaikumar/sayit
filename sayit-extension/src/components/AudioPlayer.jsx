@@ -7,7 +7,7 @@ export default function AudioPlayer({ audioUrl, label = "Listen" }) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1.0);
-  const speeds = [0.5, 0.75, 1.0];
+  const speeds = [0.5, 0.75, 1.0, 1.25];
 
   useEffect(() => {
     const audio = audioRef.current;
