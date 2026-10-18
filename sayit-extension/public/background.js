@@ -254,8 +254,23 @@ async function standaloneLookup(word, language = "auto") {
       const translation = gtx[0]?.[0]?.[0] || clean;
 
       let romanization = "";
-      if (gtx[0] && gtx[0].length > 1 && gtx[0][1] && gtx[0][1][2]) {
-        romanization = gtx[0][1][2];
+      if (Array.isArray(gtx[0])) {
+        for (const item of gtx[0]) {
+          if (Array.isArray(item)) {
+            for (const val of item) {
+              if (
+                typeof val === "string" &&
+                val.trim().length > 0 &&
+                val.toLowerCase() !== translation.toLowerCase() &&
+                val !== clean
+              ) {
+                romanization = val.trim();
+                break;
+              }
+            }
+          }
+          if (romanization) break;
+        }
       }
 
       let dictMeaning = "";
@@ -273,13 +288,13 @@ async function standaloneLookup(word, language = "auto") {
       let meaning = dictMeaning;
       if (!meaning) {
         if (translation.toLowerCase() !== clean.toLowerCase()) {
-          meaning = `Translation: "${translation}"`;
+          meaning = translation;
         } else {
-          meaning = `English text: "${clean}"`;
+          meaning = clean;
         }
       }
 
-      const syllables = extractSyllables(clean, "");
+      const syllables = romanization ? extractSyllables(romanization, "") : [clean];
       const guide = romanization || buildGuide(syllables, "");
 
       const langMap = {

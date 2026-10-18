@@ -104,9 +104,15 @@ function MiniPlayer({ src, text, langCode, isDark }) {
     }
   };
 
+  const effectiveSrc =
+    src ||
+    `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode || "en"}&client=tw-ob&q=${encodeURIComponent(
+      (text || "").slice(0, 150)
+    )}`;
+
   const toggle = () => {
     if (playing) {
-      if (src && ref.current) {
+      if (ref.current) {
         ref.current.pause();
       }
       if ("speechSynthesis" in window) {
@@ -116,13 +122,7 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       return;
     }
 
-    if (gender === "male") {
-      speakFallback();
-      return;
-    }
-
-    if (src) {
-      if (!ref.current) return;
+    if (ref.current) {
       ref.current.playbackRate = speed;
       const p = ref.current.play();
       if (p !== undefined) {
@@ -144,11 +144,11 @@ function MiniPlayer({ src, text, langCode, isDark }) {
     return () => {
       el.removeEventListener("ended", onEnd);
     };
-  }, [src]);
+  }, [effectiveSrc]);
 
   return (
     <div className="flex items-center justify-between gap-2">
-      {src && <audio ref={ref} src={src} preload="metadata" />}
+      <audio ref={ref} src={effectiveSrc} preload="metadata" />
       <div className="flex items-center gap-2">
         <button
           onClick={toggle}

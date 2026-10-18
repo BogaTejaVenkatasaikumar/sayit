@@ -791,31 +791,75 @@
     if (!bodyContent) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/pronunciation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: word, language }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        renderResult(data);
+      const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(word)}`;
+      const gtxRes = await fetch(gtxUrl);
+      if (gtxRes.ok) {
+        const gtx = await gtxRes.json();
+        const detectedLang = gtx[2] || "en";
+        const translation = gtx[0]?.[0]?.[0] || word;
+
+        let romanization = "";
+        if (Array.isArray(gtx[0])) {
+          for (const item of gtx[0]) {
+            if (Array.isArray(item)) {
+              for (const val of item) {
+                if (
+                  typeof val === "string" &&
+                  val.trim().length > 0 &&
+                  val.toLowerCase() !== translation.toLowerCase() &&
+                  val !== word
+                ) {
+                  romanization = val.trim();
+                  break;
+                }
+              }
+            }
+            if (romanization) break;
+          }
+        }
+
+        const langMap = {
+          en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
+          te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
+          ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
+          pt: "Portuguese", ru: "Russian",
+        };
+
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(word.slice(0, 150))}`;
+
+        renderResult({
+          text: word,
+          word: word,
+          language: { code: detectedLang, name: langMap[detectedLang] || detectedLang.toUpperCase() },
+          pronunciation: {
+            ipa: romanization ? `[${romanization}]` : `/${word}/`,
+            syllables: romanization ? [romanization] : [word],
+            stressed_syllable: word,
+            beginner_guide: romanization || word,
+          },
+          audio: { url: ttsUrl, dataUrl: ttsUrl },
+          meaning: translation !== word ? translation : word,
+        });
         return;
       }
-    } catch {}
+    } catch (e) {
+      console.warn("[SayIt] Direct GTX fallback error:", e);
+    }
 
-    // Standalone fallback: never leave user with an error box
+    // Emergency baseline
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(word.slice(0, 150))}`;
     renderResult({
       text: word,
       word: word,
-      language: { code: "en", name: "English" },
+      language: { code: "auto", name: "Auto" },
       pronunciation: {
         ipa: `/${word}/`,
         syllables: [word],
         stressed_syllable: word,
         beginner_guide: word,
       },
-      audio: null,
-      meaning: "Click 'Play Voice' to hear the pronunciation via browser voice.",
+      audio: { url: ttsUrl, dataUrl: ttsUrl },
+      meaning: word,
     });
   }
 
@@ -1033,49 +1077,47 @@
       currentAudio = null;
     }
 
-    isAudioPlaying = true;
-    updatePlayButtonUI(true);
+    const resolvedUrl = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode || 'en'}&client=tw-ob&q=${encodeURIComponent(text.slice(0, 150))}`;
 
-    if (selectedGender === "male") {
-      // Prioritize male voice via browser speech synthesis
+    if (selectedGender === "male" && hasMaleVoiceForLang(langCode)) {
       speakWithBrowser(text, langCode, () => {
-        // Fallback to audioUrl if speech synthesis fails
-        if (audioUrl) {
-          currentAudio = new Audio(audioUrl);
-          currentAudio.playbackRate = playbackSpeed;
-          currentAudio.onended = () => {
-            isAudioPlaying = false;
-            currentAudio = null;
-            updatePlayButtonUI(false);
-          };
-          currentAudio.play().catch(() => {
-            isAudioPlaying = false;
-            updatePlayButtonUI(false);
-          });
-        }
+        playAudioElement(resolvedUrl, text, langCode);
       });
       return;
     }
 
-    // Default Female / Studio voice
-    if (audioUrl) {
-      currentAudio = new Audio(audioUrl);
-      currentAudio.playbackRate = playbackSpeed;
-      currentAudio.onended = () => {
-        isAudioPlaying = false;
-        currentAudio = null;
-        updatePlayButtonUI(false);
-      };
-      const playPromise = currentAudio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.warn("[SayIt] HTML Audio play failed, falling back to Web Speech:", err);
-          speakWithBrowser(text, langCode);
-        });
-      }
-    } else {
-      speakWithBrowser(text, langCode);
+    // Default: Play native studio audio (works for Telugu, Hindi, Spanish, French, English, etc.)
+    playAudioElement(resolvedUrl, text, langCode);
+  }
+
+  function playAudioElement(url, text, langCode) {
+    currentAudio = new Audio(url);
+    currentAudio.playbackRate = playbackSpeed;
+    currentAudio.onended = () => {
+      isAudioPlaying = false;
+      currentAudio = null;
+      updatePlayButtonUI(false);
+    };
+    const playPromise = currentAudio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn("[SayIt] HTML Audio play failed, falling back to Web Speech:", err);
+        speakWithBrowser(text, langCode);
+      });
     }
+  }
+
+  function hasMaleVoiceForLang(langCode) {
+    if (!("speechSynthesis" in window)) return false;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return false;
+    const code = (langCode || "en").toLowerCase();
+    const bcp = (BCP47_MAP[code] || code).toLowerCase();
+    return voices.some(
+      (v) =>
+        (v.lang.toLowerCase() === bcp || v.lang.toLowerCase().startsWith(code)) &&
+        v.name.toLowerCase().includes("male")
+    );
   }
 
   const BCP47_MAP = {
