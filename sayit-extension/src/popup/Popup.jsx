@@ -120,6 +120,10 @@ function getBestVoice(langCode) {
 }
 
 // ── Audio Player for popup ───────────────────────────────────────────────────
+function hasNonLatinScript(str) {
+  return /[\u0600-\u06FF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0E00-\u0E7F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(str);
+}
+
 function MiniPlayer({ src, text, langCode, isDark }) {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
@@ -177,13 +181,29 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       return;
     }
 
-    // Always prefer SpeechSynthesis with male voice
+    const isNonLatin = hasNonLatinScript(text || "") || ["te", "hi", "ta", "kn", "ml", "bn", "ar", "zh", "ja", "ko"].includes((langCode || "").toLowerCase());
+
+    // If text is in a non-Latin script (Telugu, Hindi, Arabic, Tamil, etc.) and browser has no native voice for it,
+    // play the fluent Google Cloud TTS stream directly!
+    if (isNonLatin && !hasAnyVoiceForLang(langCode)) {
+      if (ref.current) {
+        ref.current.playbackRate = speed;
+        ref.current.play().then(() => setPlaying(true)).catch((err) => {
+          console.warn("Audio element failed:", err);
+          speakFallback();
+        });
+      } else {
+        speakFallback();
+      }
+      return;
+    }
+
+    // Otherwise, for Latin languages or languages with native voices, use SpeechSynthesis male voice
     if ("speechSynthesis" in window) {
       speakFallback();
       return;
     }
 
-    // Otherwise, play native audio stream
     if (ref.current) {
       ref.current.playbackRate = speed;
       const p = ref.current.play();

@@ -1020,7 +1020,17 @@
 
     const resolvedUrl = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode || 'en'}&client=tw-ob&q=${encodeURIComponent(text.slice(0, 150))}`;
 
-    // If browser supports SpeechSynthesis, ALWAYS use it for the dedicated male voice
+    const isNonLatin = hasNonLatinScript(text) || ["te", "hi", "ta", "kn", "ml", "bn", "ar", "zh", "ja", "ko"].includes((langCode || "").toLowerCase());
+
+    // If text is in a non-Latin script (Telugu, Hindi, Arabic, Tamil, etc.) and browser has no native voice for it,
+    // play the fluent Google Cloud TTS stream directly so it never stays silent or chokes on English voices!
+    if (isNonLatin && !hasNativeVoiceForLang(langCode)) {
+      playAudioElement(resolvedUrl);
+      return;
+    }
+
+    // Otherwise, for Latin languages (English, Spanish, French, German) or languages with native voices:
+    // Speak with the browser's dedicated male voice profile!
     if ("speechSynthesis" in window) {
       speakWithBrowser(text, langCode, () => {
         playAudioElement(resolvedUrl);
@@ -1033,9 +1043,22 @@
   }
 
   function playAudioElement(url) {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+    isAudioPlaying = true;
+    updatePlayButtonUI(true);
+
     currentAudio = new Audio(url);
     currentAudio.playbackRate = playbackSpeed;
     currentAudio.onended = () => {
+      isAudioPlaying = false;
+      currentAudio = null;
+      updatePlayButtonUI(false);
+    };
+    currentAudio.onerror = (err) => {
+      console.warn("[SayIt] Audio element play error:", err);
       isAudioPlaying = false;
       currentAudio = null;
       updatePlayButtonUI(false);
@@ -1045,9 +1068,28 @@
       playPromise.catch((err) => {
         console.warn("[SayIt] Audio element play error:", err);
         isAudioPlaying = false;
+        currentAudio = null;
         updatePlayButtonUI(false);
       });
     }
+  }
+
+  function hasNonLatinScript(str) {
+    return /[\u0600-\u06FF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0E00-\u0E7F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(str);
+  }
+
+  function hasNativeVoiceForLang(langCode) {
+    populateVoices();
+    const voices = cachedVoices.length > 0 ? cachedVoices : (("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : []);
+    if (!voices || voices.length === 0) return false;
+    const code = (langCode || "en").toLowerCase();
+    const bcp = (BCP47_MAP[code] || code).toLowerCase();
+    return voices.some(
+      (v) =>
+        v.lang.toLowerCase() === bcp ||
+        v.lang.toLowerCase().replace("_", "-") === bcp ||
+        v.lang.toLowerCase().startsWith(code)
+    );
   }
 
   const BCP47_MAP = {
