@@ -17,18 +17,40 @@ function SayItLogo({ isDark }) {
 }
 
 // ── Audio Player for popup ───────────────────────────────────────────────────
-function MiniPlayer({ src, isDark }) {
+function MiniPlayer({ src, text, langCode, isDark }) {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
 
-  const toggle = () => {
-    if (!ref.current) return;
-    if (playing) {
-      ref.current.pause();
-      setPlaying(false);
-    } else {
-      ref.current.play();
+  const speakFallback = () => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      if (langCode) u.lang = langCode;
+      u.rate = 0.9;
+      u.onend = () => setPlaying(false);
+      u.onerror = () => setPlaying(false);
       setPlaying(true);
+      window.speechSynthesis.speak(u);
+    }
+  };
+
+  const toggle = () => {
+    if (src) {
+      if (!ref.current) return;
+      if (playing) {
+        ref.current.pause();
+        setPlaying(false);
+      } else {
+        const p = ref.current.play();
+        if (p !== undefined) {
+          p.then(() => setPlaying(true)).catch((err) => {
+            console.warn("Audio element failed, falling back to speech synthesis:", err);
+            speakFallback();
+          });
+        }
+      }
+    } else {
+      speakFallback();
     }
   };
 
@@ -42,7 +64,7 @@ function MiniPlayer({ src, isDark }) {
 
   return (
     <div className="flex items-center gap-2.5">
-      <audio ref={ref} src={src} preload="metadata" />
+      {src && <audio ref={ref} src={src} preload="metadata" />}
       <button
         onClick={toggle}
         className="flex items-center gap-1.5 text-white text-xs font-bold px-3.5 py-1.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-sm shadow-orange-500/20 active:scale-95"
@@ -51,7 +73,7 @@ function MiniPlayer({ src, isDark }) {
         {playing ? "Pause" : "Play Voice"}
       </button>
       <span className={`text-xs font-medium ${isDark ? "text-neutral-400" : "text-neutral-500"}`}>
-        Native audio
+        {src ? "Native audio" : "Browser voice"}
       </span>
     </div>
   );
@@ -362,11 +384,14 @@ export default function Popup() {
           </div>
 
           {/* Audio Player */}
-          {result.audio?.url && (
-            <div className={`px-4 py-2.5 border-b ${isDark ? "border-neutral-800/90 bg-[#121215]" : "border-neutral-200 bg-white"}`}>
-              <MiniPlayer src={audioUrl(result.audio.url)} isDark={isDark} />
-            </div>
-          )}
+          <div className={`px-4 py-2.5 border-b ${isDark ? "border-neutral-800/90 bg-[#121215]" : "border-neutral-200 bg-white"}`}>
+            <MiniPlayer
+              src={result.audio?.url ? audioUrl(result.audio.url) : null}
+              text={result.text || result.word || result.searchText}
+              langCode={langCode}
+              isDark={isDark}
+            />
+          </div>
 
           {/* Meaning / Definition with Translation */}
           {meaning && (

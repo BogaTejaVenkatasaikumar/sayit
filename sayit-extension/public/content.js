@@ -742,17 +742,15 @@
         </div>
       </div>
 
-      ${audioUrl ? `
-        <div class="sayit-audio-bar">
-          <button class="sayit-play-btn" id="sayit-card-play-audio">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-            Play Voice
-          </button>
-          <span class="sayit-audio-info">Native audio</span>
-        </div>
-      ` : ''}
+      <div class="sayit-audio-bar">
+        <button class="sayit-play-btn" id="sayit-card-play-audio">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Play Voice
+        </button>
+        <span class="sayit-audio-info">${audioUrl ? "Native audio" : "Browser voice"}</span>
+      </div>
 
       ${meaning ? `
         <div class="sayit-meaning-card">
@@ -794,16 +792,12 @@
       ` : ''}
     `;
 
-    // Play Audio
-    if (audioUrl) {
-      const playBtn = bodyContent.querySelector("#sayit-card-play-audio");
-      if (playBtn) {
-        playBtn.addEventListener("click", () => {
-          if (currentAudio) currentAudio.pause();
-          currentAudio = new Audio(audioUrl);
-          currentAudio.play();
-        });
-      }
+    // Universal audio playback with browser speech fallback
+    const playBtn = bodyContent.querySelector("#sayit-card-play-audio");
+    if (playBtn) {
+      playBtn.addEventListener("click", () => {
+        playPronunciationAudio(text, audioUrl, langCode);
+      });
     }
 
     // Meaning Translation Dropdown
@@ -847,6 +841,40 @@
           textContainer.innerHTML = `<p class="sayit-meaning-val">${escapeHtml(meaning)}</p>`;
         }
       });
+    }
+  }
+
+  function playPronunciationAudio(text, audioUrl, langCode) {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+
+    if (audioUrl) {
+      currentAudio = new Audio(audioUrl);
+      const playPromise = currentAudio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn("[SayIt] HTML Audio play failed, falling back to Web Speech:", err);
+          speakWithBrowser(text, langCode);
+        });
+      }
+    } else {
+      speakWithBrowser(text, langCode);
+    }
+  }
+
+  function speakWithBrowser(text, langCode) {
+    try {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        if (langCode) utterance.lang = langCode;
+        utterance.rate = 0.9;
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch (e) {
+      console.error("[SayIt] SpeechSynthesis error:", e);
     }
   }
 
