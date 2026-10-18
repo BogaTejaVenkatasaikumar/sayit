@@ -20,7 +20,23 @@ api.interceptors.response.use(
   }
 );
 
-export const pronounce = (data) => api.post("/api/v1/pronunciation", data);
+export const pronounce = async (data) => {
+  if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: "API_PRONUNCIATION", text: data.text, language: data.language || "auto" },
+        (res) => {
+          if (chrome.runtime.lastError || !res || !res.success) {
+            reject(new Error(res?.error || chrome.runtime.lastError?.message || "Failed to analyze word"));
+          } else {
+            resolve(res.data);
+          }
+        }
+      );
+    });
+  }
+  return api.post("/api/v1/pronunciation", data);
+};
 
 export const submitPractice = ({ audio, expected_text, language }) => {
   const form = new FormData();
@@ -32,19 +48,40 @@ export const submitPractice = ({ audio, expected_text, language }) => {
   });
 };
 
-export const translateText = ({ text, target_language, source_language = "auto" }) =>
-  api.post("/api/v1/translate", {
+export const translateText = async ({ text, target_language, source_language = "auto" }) => {
+  if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: "API_TRANSLATE", text, target_language, source_language },
+        (res) => {
+          if (chrome.runtime.lastError || !res || !res.success) {
+            reject(new Error(res?.error || chrome.runtime.lastError?.message || "Failed to translate"));
+          } else {
+            resolve(res.data);
+          }
+        }
+      );
+    });
+  }
+  return api.post("/api/v1/translate", {
     text,
     target_language,
     source_language,
   });
+};
 
 export const getProgress = () => api.get("/api/v1/progress");
 export const getHistory = () => api.get("/api/v1/history");
 export const deleteHistory = (id) => api.delete(`/api/v1/history/${id}`);
 
-/** Full URL for audio served by the backend */
-export const audioUrl = (path) => `${BASE_URL}${path}`;
+/** Full URL for audio served by the backend or standalone */
+export const audioUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
+    return path;
+  }
+  return `${BASE_URL}${path}`;
+};
 
 export default api;
 

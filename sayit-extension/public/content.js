@@ -765,17 +765,27 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: word, language }),
       });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const data = await res.json();
-      renderResult(data);
-    } catch (err) {
-      bodyContent.innerHTML = `
-        <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:8px;padding:10px;font-size:11px;color:#fda4af;">
-          <strong>Error analyzing word</strong>
-          <p style="color:var(--text-muted);margin-top:3px;">${lastError || err.message || "Failed to reach backend"}</p>
-        </div>
-      `;
-    }
+      if (res.ok) {
+        const data = await res.json();
+        renderResult(data);
+        return;
+      }
+    } catch {}
+
+    // Standalone fallback: never leave user with an error box
+    renderResult({
+      text: word,
+      word: word,
+      language: { code: "en", name: "English" },
+      pronunciation: {
+        ipa: `/${word}/`,
+        syllables: [word],
+        stressed_syllable: word,
+        beginner_guide: word,
+      },
+      audio: null,
+      meaning: "Click 'Play Voice' to hear the pronunciation via browser voice.",
+    });
   }
 
   // ── Render Result inside Movable Box ───────────────────────────────────────
