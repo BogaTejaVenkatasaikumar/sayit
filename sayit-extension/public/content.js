@@ -683,7 +683,7 @@
     }
   }
 
-  // ── Lookup Pronunciation & Meaning ─────────────────────────────────────────
+  // ── Lookup Pronunciation & Meaning (Proxied via background script to bypass mixed content) ──
   async function executeLookup(word, language = "auto") {
     if (!activeCard) return;
     const bodyContent = activeCard.querySelector("#sayit-body-content");
@@ -695,12 +695,36 @@
     `;
 
     try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage(
+          { type: "API_PRONUNCIATION", text: word, language },
+          (response) => {
+            if (chrome.runtime.lastError || !response || !response.success) {
+              const errMsg = response?.error || chrome.runtime.lastError?.message || "Failed to reach backend";
+              fallbackDirectFetch(word, language, errMsg);
+            } else {
+              renderResult(response.data);
+            }
+          }
+        );
+      } else {
+        fallbackDirectFetch(word, language);
+      }
+    } catch {
+      fallbackDirectFetch(word, language);
+    }
+  }
+
+  async function fallbackDirectFetch(word, language, lastError = "") {
+    const bodyContent = activeCard?.querySelector("#sayit-body-content");
+    if (!bodyContent) return;
+
+    try {
       const res = await fetch(`${API_BASE}/api/v1/pronunciation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: word, language }),
       });
-
       if (!res.ok) throw new Error(`Status ${res.status}`);
       const data = await res.json();
       renderResult(data);
@@ -708,7 +732,7 @@
       bodyContent.innerHTML = `
         <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:8px;padding:10px;font-size:11px;color:#fda4af;">
           <strong>Error analyzing word</strong>
-          <p style="color:var(--text-muted);margin-top:3px;">${err.message || "Failed to reach backend"}</p>
+          <p style="color:var(--text-muted);margin-top:3px;">${lastError || err.message || "Failed to reach backend"}</p>
         </div>
       `;
     }
@@ -727,7 +751,7 @@
     const stressed = data.pronunciation?.stressed_syllable || "";
     const guide = data.pronunciation?.beginner_guide || "";
     const meaning = data.meaning || "";
-    const audioUrl = data.audio?.url ? `${API_BASE}${data.audio.url}` : null;
+    const audioUrl = data.audio?.dataUrl || (data.audio?.url ? `${API_BASE}${data.audio.url}` : null);
     const tip = data.pronunciation_tip || "";
 
     bodyContent.innerHTML = `
@@ -820,23 +844,30 @@
         `;
 
         try {
-          const transRes = await fetch(`${API_BASE}/api/v1/translate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: meaning,
-              target_language: targetLang,
-              source_language: "auto",
-            }),
-          });
-          const transData = await transRes.json();
-          const translated = transData.translated_text || meaning;
-          const targetLangName = MEANING_LANGUAGES.find((m) => m.code === targetLang)?.name || targetLang;
-
-          textContainer.innerHTML = `
-            <p class="sayit-meaning-val">${escapeHtml(translated)}</p>
-            <div class="sayit-trans-credit">Translated to ${escapeHtml(targetLangName)}</div>
-          `;
+          if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+            chrome.runtime.sendMessage(
+              {
+                type: "API_TRANSLATE",
+                text: meaning,
+                target_language: targetLang,
+                source_language: "auto",
+              },
+              (res) => {
+                if (res && res.success) {
+                  const translated = res.data?.translated_text || meaning;
+                  const targetLangName = MEANING_LANGUAGES.find((m) => m.code === targetLang)?.name || targetLang;
+                  textContainer.innerHTML = `
+                    <p class="sayit-meaning-val">${escapeHtml(translated)}</p>
+                    <div class="sayit-trans-credit">Translated to ${escapeHtml(targetLangName)}</div>
+                  `;
+                } else {
+                  textContainer.innerHTML = `<p class="sayit-meaning-val">${escapeHtml(meaning)}</p>`;
+                }
+              }
+            );
+          } else {
+            textContainer.innerHTML = `<p class="sayit-meaning-val">${escapeHtml(meaning)}</p>`;
+          }
         } catch (err) {
           textContainer.innerHTML = `<p class="sayit-meaning-val">${escapeHtml(meaning)}</p>`;
         }
@@ -902,13 +933,18 @@
     }, 20);
   });
 
-  // ── Keyboard Shortcut: Alt+S toggles movable box at cursor location ────────
-  document.addEventListener("keydown", (e) => {
-    if (e.altKey && (e.key === "s" || e.key === "S")) {
-      const selected = window.getSelection()?.toString()?.trim();
-      showCursorCard(selected || "");
-    }
-  });
+  // ── Keyboard Shortcut: Alt+S toggles box on any webpage ────────
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.altKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCard();
+      }
+    },
+    true
+  );
 
   // ── Messages from Extension Toolbar Icon / Context Menu ───────────────────
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

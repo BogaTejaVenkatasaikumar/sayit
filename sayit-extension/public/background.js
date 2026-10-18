@@ -1,5 +1,7 @@
 // SayIt — Background Service Worker (Manifest V3)
 
+const API_BASE = "http://127.0.0.1:8000";
+
 // ── Install: register context menu ──────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -8,27 +10,27 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
   });
 
-  console.log("[SayIt] Extension installed — registered context menus");
+  console.log("[SayIt] Extension installed — registered context menus and commands");
 });
 
-// ── Extension Action (Toolbar Icon) Click: Open movable box on active page ───
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab?.id) return;
-  // Ignore chrome:// internal pages
-  if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
+// ── Keyboard Shortcuts (Chrome Commands: Alt+S) ─────────────────────────────
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "toggle_sayit") {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
 
-  try {
-    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_CURSOR_WIDGET" });
-  } catch (e) {
-    // If content script was not ready, inject it and retry
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content.js"],
-      });
       await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_CURSOR_WIDGET" });
-    } catch (err) {
-      console.warn("[SayIt] Could not inject content script into tab:", err);
+    } catch {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["content.js"],
+        });
+        await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_CURSOR_WIDGET" });
+      } catch (err) {
+        console.warn("[SayIt] Could not trigger toggle on tab:", err);
+      }
     }
   }
 });
@@ -61,11 +63,71 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// ── Messages from content script ─────────────────────────────────────────────
+// ── Proxy API Requests from Content Script (Bypasses Mixed Content / CORS) ──
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === "TEXT_SELECTED") {
+  if (message.type === "API_PRONUNCIATION") {
+    fetch(`${API_BASE}/api/v1/pronunciation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: message.text, language: message.language || "auto" }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        // Convert audio to data URL if available to prevent Mixed Content audio blocking
+        if (data.audio?.url) {
+          try {
+            const audioFetch = await fetch(`${API_BASE}${data.audio.url}`);
+            if (audioFetch.ok) {
+              const blob = await audioFetch.blob();
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                data.audio.dataUrl = reader.result;
+                sendResponse({ success: true, data });
+              };
+              reader.readAsDataURL(blob);
+              return;
+            }
+          } catch (audioErr) {
+            console.warn("[SayIt Background] Audio conversion warning:", audioErr);
+          }
+        }
+
+        sendResponse({ success: true, data });
+      })
+      .catch((err) => {
+        console.error("[SayIt Background] Pronunciation API error:", err);
+        sendResponse({ success: false, error: err.message || "Failed to reach backend API" });
+      });
+
+    return true; // Keep message channel open for async response
+  } else if (message.type === "API_TRANSLATE") {
+    fetch(`${API_BASE}/api/v1/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: message.text,
+        target_language: message.target_language,
+        source_language: message.source_language || "auto",
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        sendResponse({ success: true, data });
+      })
+      .catch((err) => {
+        console.error("[SayIt Background] Translate API error:", err);
+        sendResponse({ success: false, error: err.message || "Failed to translate" });
+      });
+
+    return true;
+  } else if (message.type === "TEXT_SELECTED") {
     chrome.storage.session.set({ pendingWord: message.text });
     sendResponse({ ok: true });
+    return true;
   }
+
   return true;
 });

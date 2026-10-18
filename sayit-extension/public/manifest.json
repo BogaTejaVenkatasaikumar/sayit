@@ -23,6 +23,22 @@
     },
     "default_title": "SayIt — Pronunciation & Meaning"
   },
+  "commands": {
+    "toggle_sayit": {
+      "suggested_key": {
+        "default": "Alt+S",
+        "mac": "Alt+S"
+      },
+      "description": "Open SayIt on current webpage"
+    },
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Open SayIt Extension Popup"
+    }
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
