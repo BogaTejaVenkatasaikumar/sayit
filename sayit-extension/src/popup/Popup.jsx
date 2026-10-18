@@ -66,7 +66,7 @@ function hasAnyVoiceForLang(langCode) {
   );
 }
 
-function getBestVoice(langCode, gender) {
+function getBestVoice(langCode) {
   populateVoices();
   const voices =
     cachedVoices.length > 0
@@ -79,6 +79,18 @@ function getBestVoice(langCode, gender) {
   const code = (langCode || "en").toLowerCase();
   const bcp = (BCP47_MAP[code] || code).toLowerCase();
 
+  const maleKeywords = [
+    "david", "mark", "guy", "male", "george", "daniel", "james", "richard", "stefan",
+    "raul", "jorge", "pablo", "diego", "carlos", "alvaro", "manuel", "enrique",
+    "antoine", "paul", "thomas", "pierre", "jean", "hans", "martin", "alex", "fred",
+    "google uk english male", "google español male", "google français male"
+  ];
+  const femaleKeywords = [
+    "zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "catherine",
+    "susan", "helena", "eva", "sabina", "laura", "monica", "google español", "google français",
+    "google uk english female", "google us english"
+  ];
+
   const langVoices = voices.filter(
     (v) =>
       v.lang.toLowerCase() === bcp ||
@@ -86,26 +98,25 @@ function getBestVoice(langCode, gender) {
       v.lang.toLowerCase().startsWith(code)
   );
 
-  const pool = langVoices.length > 0 ? langVoices : voices;
+  // 1. Male voice in requested language
+  const langMale = langVoices.find((v) =>
+    maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
+    !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+  );
+  if (langMale) return langMale;
 
-  const femaleKeywords = [
-    "zira", "aria", "jenny", "samantha", "victoria", "karen", "female",
-    "catherine", "susan", "helena", "eva", "google us english", "google uk english female",
-  ];
-  const maleKeywords = [
-    "david", "mark", "guy", "male", "george", "daniel",
-    "james", "richard", "stefan", "google uk english male",
-  ];
+  // 2. Global verified male voice (e.g. Microsoft David Desktop)
+  const globalMale = voices.find((v) =>
+    maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
+    !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+  );
+  if (globalMale) return globalMale;
 
-  if (gender === "male") {
-    const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
-    if (match) return match;
-  } else {
-    const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
-    if (match) return match;
-  }
+  // 3. Fallback: Any voice that is not female
+  const nonFemale = voices.find((v) => !femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+  if (nonFemale) return nonFemale;
 
-  return pool[0] || null;
+  return voices[0] || null;
 }
 
 // ── Audio Player for popup ───────────────────────────────────────────────────
@@ -123,8 +134,11 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       u.lang = BCP47_MAP[code] || code;
       u.rate = speed;
 
-      const voice = getBestVoice(code, "male");
-      if (voice) u.voice = voice;
+      const voice = getBestVoice(code);
+      if (voice) {
+        u.voice = voice;
+        if (voice.lang) u.lang = voice.lang;
+      }
 
       // Dedicated male voice: pitch 0.8 (deep, masculine)
       u.pitch = 0.8;
@@ -163,8 +177,8 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       return;
     }
 
-    // If browser has voice for this language, use speech synthesis (supports male voice)
-    if (hasAnyVoiceForLang(langCode)) {
+    // Always prefer SpeechSynthesis with male voice
+    if ("speechSynthesis" in window) {
       speakFallback();
       return;
     }
@@ -433,25 +447,6 @@ export default function Popup() {
             {status === "loading" ? "Analyzing" : "SayIt"}
           </button>
         </div>
-
-        <div className="flex items-center gap-1.5">
-          <Globe size={13} className={isDark ? "text-neutral-400 shrink-0" : "text-neutral-500 shrink-0"} />
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className={`w-full text-xs rounded-lg px-2.5 py-1.5 focus:outline-none transition-colors cursor-pointer border ${
-              isDark
-                ? "bg-[#1d1d22] border-neutral-700 text-neutral-200 focus:border-orange-500"
-                : "bg-white border-neutral-300 text-neutral-800 focus:border-orange-500"
-            }`}
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       {/* Loading State */}
@@ -511,23 +506,35 @@ export default function Popup() {
               )}
             </div>
 
-            {/* IPA & Guide */}
-            <div className="flex items-center gap-3 flex-wrap">
-              {ipa && (
-                <span className="font-mono text-base font-bold text-orange-500">
-                  {ipa}
-                </span>
-              )}
-              {beginnerGuide && (
-                <span className={`text-xs font-mono px-2 py-0.5 rounded-md border ${
-                  isDark
-                    ? "text-neutral-300 bg-neutral-800 border-neutral-700"
-                    : "text-neutral-700 bg-white border-neutral-300"
-                }`}>
-                  {beginnerGuide}
-                </span>
-              )}
-            </div>
+            {/* IPA & Guide (Only if distinct from the word/sentence itself) */}
+            {(() => {
+              const mainText = (result.text || result.word || result.searchText || "").trim().toLowerCase();
+              const cleanIpa = (ipa || "").replace(/[\/\[\]]/g, "").trim().toLowerCase();
+              const isDistinctIpa = ipa && cleanIpa !== mainText;
+              const cleanGuide = (beginnerGuide || "").trim().toLowerCase();
+              const isDistinctGuide = beginnerGuide && cleanGuide !== mainText && cleanGuide !== cleanIpa;
+
+              if (!isDistinctIpa && !isDistinctGuide) return null;
+
+              return (
+                <div className="flex items-center gap-3 flex-wrap">
+                  {isDistinctIpa && (
+                    <span className="font-mono text-base font-bold text-orange-500">
+                      {ipa}
+                    </span>
+                  )}
+                  {isDistinctGuide && (
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-md border ${
+                      isDark
+                        ? "text-neutral-300 bg-neutral-800 border-neutral-700"
+                        : "text-neutral-700 bg-white border-neutral-300"
+                    }`}>
+                      {beginnerGuide}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Audio Player */}

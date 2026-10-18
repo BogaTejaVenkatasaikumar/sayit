@@ -121,7 +121,7 @@
       top: 0;
       left: 0;
       pointer-events: auto;
-      width: 360px;
+      width: 380px;
       max-width: calc(100vw - 20px);
       background: var(--bg-primary);
       color: var(--text-main);
@@ -231,12 +231,9 @@
 
     /* Search bar */
     .sayit-search-bar {
-      padding: 10px 14px;
+      padding: 8px 12px;
       background: var(--bg-section);
       border-bottom: 1px solid var(--border-subtle);
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
     }
     .sayit-input-row {
       display: flex;
@@ -278,25 +275,17 @@
       box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
     }
     .sayit-select {
-      background: var(--bg-input);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-main);
-      border-radius: 10px;
-      padding: 5px 9px;
-      font-size: 11px;
-      outline: none;
-      cursor: pointer;
-      width: 100%;
+      display: none;
     }
 
     /* Body */
     .sayit-body {
-      padding: 14px;
-      max-height: 330px;
+      padding: 12px 14px;
+      max-height: 360px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 11px;
+      gap: 8px;
     }
 
     /* Word Details */
@@ -307,11 +296,12 @@
       gap: 6px;
     }
     .sayit-word-title {
-      font-size: 17px;
-      font-weight: 800;
+      font-size: 15px;
+      font-weight: 700;
       color: var(--text-main);
       word-break: break-word;
       letter-spacing: -0.2px;
+      line-height: 1.35;
     }
     .sayit-lang-tag {
       font-size: 10px;
@@ -629,7 +619,7 @@
 
       <div class="sayit-search-bar">
         <div class="sayit-input-row">
-          <input type="text" class="sayit-input" id="sayit-search-input" placeholder='Enter word or phrase…' value="${initialWord ? initialWord.replace(/"/g, '&quot;') : ''}" />
+          <input type="text" class="sayit-input" id="sayit-search-input" placeholder='Type a word or phrase (auto-detects language)…' value="${initialWord ? initialWord.replace(/"/g, '&quot;') : ''}" />
           <button class="sayit-primary-btn" id="sayit-submit-btn">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
@@ -638,9 +628,6 @@
             SayIt
           </button>
         </div>
-        <select class="sayit-select" id="sayit-lang-select">
-          ${LANGUAGES.map((l) => `<option value="${l.code}">${l.name}</option>`).join("")}
-        </select>
       </div>
 
       <div class="sayit-body" id="sayit-body-content">
@@ -668,7 +655,6 @@
     const themeBtn = card.querySelector("#sayit-theme-btn");
     const searchInput = card.querySelector("#sayit-search-input");
     const submitBtn = card.querySelector("#sayit-submit-btn");
-    const langSelect = card.querySelector("#sayit-lang-select");
 
     closeBtn.addEventListener("click", () => {
       card.remove();
@@ -689,8 +675,7 @@
 
     const triggerLookup = () => {
       const q = searchInput.value.trim();
-      const l = langSelect.value;
-      if (q) executeLookup(q, l);
+      if (q) executeLookup(q, "auto");
     };
 
     submitBtn.addEventListener("click", triggerLookup);
@@ -840,7 +825,12 @@
     const guide = data.pronunciation?.beginner_guide || "";
     const meaning = data.meaning || "";
     const audioUrl = data.audio?.dataUrl || (data.audio?.url ? `${API_BASE}${data.audio.url}` : null);
-    const tip = data.pronunciation_tip || "";
+    const cleanIpa = (ipa || "").replace(/[\/\[\]]/g, "").trim().toLowerCase();
+    const cleanText = (text || "").trim().toLowerCase();
+    const isDistinctIpa = ipa && cleanIpa !== cleanText;
+
+    const cleanGuide = (guide || "").trim().toLowerCase();
+    const isDistinctGuide = guide && cleanGuide !== cleanText && cleanGuide !== cleanIpa;
 
     bodyContent.innerHTML = `
       <div>
@@ -848,10 +838,12 @@
           <span class="sayit-word-title">${escapeHtml(text)}</span>
           ${langName ? `<span class="sayit-lang-tag">✨ ${escapeHtml(langName)} ${langCode ? `(${langCode})` : ''}</span>` : ''}
         </div>
-        <div class="sayit-ipa-box">
-          ${ipa ? `<span class="sayit-ipa-text">${escapeHtml(ipa)}</span>` : ''}
-          ${guide ? `<span class="sayit-guide-text">${escapeHtml(guide)}</span>` : ''}
-        </div>
+        ${(isDistinctIpa || isDistinctGuide) ? `
+          <div class="sayit-ipa-box">
+            ${isDistinctIpa ? `<span class="sayit-ipa-text">${escapeHtml(ipa)}</span>` : ''}
+            ${isDistinctGuide ? `<span class="sayit-guide-text">${escapeHtml(guide)}</span>` : ''}
+          </div>
+        ` : ''}
       </div>
 
       <div class="sayit-audio-bar">
@@ -1028,15 +1020,15 @@
 
     const resolvedUrl = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode || 'en'}&client=tw-ob&q=${encodeURIComponent(text.slice(0, 150))}`;
 
-    // If browser has a voice for this language, use speech synthesis (supports Female & Male toggles!)
-    if (hasAnyVoiceForLang(langCode)) {
+    // If browser supports SpeechSynthesis, ALWAYS use it for the dedicated male voice
+    if ("speechSynthesis" in window) {
       speakWithBrowser(text, langCode, () => {
         playAudioElement(resolvedUrl);
       });
       return;
     }
 
-    // Otherwise, play native cloud audio stream (e.g. for Indian regional languages or rare scripts)
+    // Otherwise, play native cloud audio stream
     playAudioElement(resolvedUrl);
   }
 
@@ -1089,21 +1081,7 @@
     window.speechSynthesis.onvoiceschanged = populateVoices;
   }
 
-  function hasAnyVoiceForLang(langCode) {
-    populateVoices();
-    const voices = cachedVoices.length > 0 ? cachedVoices : (("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : []);
-    if (!voices || voices.length === 0) return false;
-    const code = (langCode || "en").toLowerCase();
-    const bcp = (BCP47_MAP[code] || code).toLowerCase();
-    return voices.some(
-      (v) =>
-        v.lang.toLowerCase() === bcp ||
-        v.lang.toLowerCase().replace("_", "-") === bcp ||
-        v.lang.toLowerCase().startsWith(code)
-    );
-  }
-
-  function getBestVoice(langCode, gender) {
+  function getBestVoice(langCode) {
     populateVoices();
     const voices = cachedVoices.length > 0 ? cachedVoices : (("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : []);
     if (!voices || voices.length === 0) return null;
@@ -1111,7 +1089,19 @@
     const code = (langCode || "en").toLowerCase();
     const bcp = (BCP47_MAP[code] || code).toLowerCase();
 
-    // Filter by language
+    const maleKeywords = [
+      "david", "mark", "guy", "male", "george", "daniel", "james", "richard", "stefan",
+      "raul", "jorge", "pablo", "diego", "carlos", "alvaro", "manuel", "enrique",
+      "antoine", "paul", "thomas", "pierre", "jean", "hans", "martin", "alex", "fred",
+      "google uk english male", "google español male", "google français male"
+    ];
+    const femaleKeywords = [
+      "zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "catherine",
+      "susan", "helena", "eva", "sabina", "laura", "monica", "google español", "google français",
+      "google uk english female", "google us english"
+    ];
+
+    // Filter language voices
     const langVoices = voices.filter(
       (v) =>
         v.lang.toLowerCase() === bcp ||
@@ -1119,20 +1109,25 @@
         v.lang.toLowerCase().startsWith(code)
     );
 
-    const pool = langVoices.length > 0 ? langVoices : voices;
+    // 1. Male voice in requested language
+    const langMale = langVoices.find((v) =>
+      maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
+      !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+    );
+    if (langMale) return langMale;
 
-    const femaleKeywords = ["zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "catherine", "susan", "helena", "eva", "google us english", "google uk english female"];
-    const maleKeywords = ["david", "mark", "guy", "male", "george", "daniel", "james", "richard", "stefan", "google uk english male"];
+    // 2. Verified global male voice (e.g. Microsoft David Desktop)
+    const globalMale = voices.find((v) =>
+      maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
+      !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+    );
+    if (globalMale) return globalMale;
 
-    if (gender === "male") {
-      const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
-      if (match) return match;
-    } else {
-      const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
-      if (match) return match;
-    }
+    // 3. Fallback: Any voice that is not female
+    const nonFemale = voices.find((v) => !femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+    if (nonFemale) return nonFemale;
 
-    return pool[0] || null;
+    return voices[0] || null;
   }
 
   function speakWithBrowser(text, langCode, onErrorCallback = null) {
@@ -1147,15 +1142,19 @@
       window.speechSynthesis.cancel();
       populateVoices();
 
+      isAudioPlaying = true;
+      updatePlayButtonUI(true);
+
       const utterance = new SpeechSynthesisUtterance(text);
       const code = (langCode || "en").toLowerCase();
       utterance.lang = BCP47_MAP[code] || code;
       utterance.rate = playbackSpeed;
 
       // Dedicated male voice
-      const voice = getBestVoice(code, "male");
+      const voice = getBestVoice(code);
       if (voice) {
         utterance.voice = voice;
+        if (voice.lang) utterance.lang = voice.lang;
       }
 
       // Male voice pitch: 0.8 (rich, deep, masculine)
