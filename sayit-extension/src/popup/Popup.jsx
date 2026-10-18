@@ -113,12 +113,6 @@ function MiniPlayer({ src, text, langCode, isDark }) {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [gender, setGender] = useState(() => localStorage.getItem("sayit_voice_gender") || "female");
-
-  const handleGenderChange = (g) => {
-    setGender(g);
-    localStorage.setItem("sayit_voice_gender", g);
-  };
 
   const speakFallback = () => {
     if ("speechSynthesis" in window) {
@@ -129,13 +123,11 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       u.lang = BCP47_MAP[code] || code;
       u.rate = speed;
 
-      const voice = getBestVoice(code, gender);
+      const voice = getBestVoice(code, "male");
       if (voice) u.voice = voice;
 
-      // Voice Pitch distinction:
-      // Male voice -> pitch: 0.8 (deep, masculine)
-      // Female voice -> pitch: 1.15 (bright, feminine)
-      u.pitch = gender === "male" ? 0.8 : 1.15;
+      // Dedicated male voice: pitch 0.8 (deep, masculine)
+      u.pitch = 0.8;
 
       u.onend = () => setPlaying(false);
       u.onerror = () => setPlaying(false);
@@ -171,7 +163,7 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       return;
     }
 
-    // If browser has voice for this language, use speech synthesis (supports Female & Male toggles!)
+    // If browser has voice for this language, use speech synthesis (supports male voice)
     if (hasAnyVoiceForLang(langCode)) {
       speakFallback();
       return;
@@ -219,33 +211,6 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       </div>
 
       <div className="flex items-center gap-1.5">
-        {/* Gender Toggle */}
-        <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-          isDark ? "bg-[#1d1d22] border-neutral-700/80" : "bg-neutral-100 border-neutral-300"
-        }`}>
-          <button
-            onClick={() => handleGenderChange("female")}
-            className={`px-1.5 py-0.5 text-xs rounded transition-all ${
-              gender === "female"
-                ? "bg-orange-500 text-white shadow-sm"
-                : "opacity-60 hover:opacity-100"
-            }`}
-            title="Female Voice"
-          >
-            👩
-          </button>
-          <button
-            onClick={() => handleGenderChange("male")}
-            className={`px-1.5 py-0.5 text-xs rounded transition-all ${
-              gender === "male"
-                ? "bg-orange-500 text-white shadow-sm"
-                : "opacity-60 hover:opacity-100"
-            }`}
-            title="Male Voice"
-          >
-            👨
-          </button>
-        </div>
 
         {/* Speed Controls */}
         <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${

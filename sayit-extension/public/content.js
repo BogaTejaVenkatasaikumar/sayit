@@ -398,34 +398,7 @@
       align-items: center;
       gap: 5px;
     }
-    .sayit-gender-selector {
-      display: flex;
-      align-items: center;
-      gap: 1px;
-      background: var(--chip-bg);
-      border: 1px solid var(--chip-border);
-      border-radius: 8px;
-      padding: 2px;
-    }
-    .sayit-gender-btn {
-      background: transparent;
-      border: none;
-      border-radius: 6px;
-      font-size: 11px;
-      padding: 2px 4px;
-      cursor: pointer;
-      line-height: 1;
-      opacity: 0.5;
-      transition: all 0.15s;
-    }
-    .sayit-gender-btn:hover {
-      opacity: 0.85;
-    }
-    .sayit-gender-btn.active {
-      background: var(--chip-active-bg);
-      border: 1px solid var(--chip-active-border);
-      opacity: 1;
-    }
+
     .sayit-speed-selector {
       display: flex;
       align-items: center;
@@ -563,7 +536,7 @@
   let currentAudio = null;
   let playbackSpeed = 1.0;
   let isAudioPlaying = false;
-  let selectedGender = localStorage.getItem("sayit_voice_gender") || "female";
+  let selectedGender = "male";
 
   // Track cursor position only so when user selects text, we know where to open the box
   window.addEventListener(
@@ -902,10 +875,6 @@
           <span class="sayit-audio-info">${langName ? `${langName}` : (audioUrl ? "Native audio" : "Browser voice")}</span>
         </div>
         <div class="sayit-audio-controls">
-          <div class="sayit-gender-selector" title="Switch voice: Female / Male">
-            <button class="sayit-gender-btn ${selectedGender === 'female' ? 'active' : ''}" data-gender="female" title="Female Voice">👩</button>
-            <button class="sayit-gender-btn ${selectedGender === 'male' ? 'active' : ''}" data-gender="male" title="Male Voice">👨</button>
-          </div>
           <div class="sayit-speed-selector">
             <button class="sayit-speed-btn ${playbackSpeed === 0.75 ? 'active' : ''}" data-speed="0.75" title="0.75x speed">0.75x</button>
             <button class="sayit-speed-btn ${playbackSpeed === 1.0 ? 'active' : ''}" data-speed="1.0" title="Normal 1x speed">1x</button>
@@ -948,24 +917,13 @@
       ` : ''}
     `;
 
-    // Universal audio playback with Play/Pause state, Speed controls, and Voice Gender
+    // Universal audio playback with Play/Pause state and Speed controls
     const playBtn = bodyContent.querySelector("#sayit-card-play-audio");
     if (playBtn) {
       playBtn.addEventListener("click", () => {
         playPronunciationAudio(text, audioUrl, langCode);
       });
     }
-
-    const genderButtons = bodyContent.querySelectorAll(".sayit-gender-btn");
-    genderButtons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const g = btn.getAttribute("data-gender");
-        if (!g) return;
-        selectedGender = g;
-        localStorage.setItem("sayit_voice_gender", g);
-        genderButtons.forEach((b) => b.classList.toggle("active", b === btn));
-      });
-    });
 
     const speedButtons = bodyContent.querySelectorAll(".sayit-speed-btn");
     speedButtons.forEach((btn) => {
@@ -1203,16 +1161,14 @@
       utterance.lang = BCP47_MAP[code] || code;
       utterance.rate = playbackSpeed;
 
-      // Select female or male voice
-      const voice = getBestVoice(code, selectedGender);
+      // Dedicated male voice
+      const voice = getBestVoice(code, "male");
       if (voice) {
         utterance.voice = voice;
       }
 
-      // Voice Pitch distinction:
-      // Male voice -> pitch: 0.8 (deep, masculine)
-      // Female voice -> pitch: 1.15 (bright, feminine)
-      utterance.pitch = selectedGender === "male" ? 0.8 : 1.15;
+      // Male voice pitch: 0.8 (rich, deep, masculine)
+      utterance.pitch = 0.8;
 
       utterance.onend = () => {
         isAudioPlaying = false;
