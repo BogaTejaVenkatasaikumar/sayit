@@ -610,13 +610,16 @@
   }
 
   // ── Show or Toggle Full Movable Box ─────────────────────────────────────────
-  function showCursorCard(initialWord = "") {
+  function showCursorCard(initialWord = "", customX = null, customY = null) {
+    const targetX = customX !== null ? customX : mouseX;
+    const targetY = customY !== null ? customY : mouseY;
+
     if (activeCard) {
       const searchInput = activeCard.querySelector("#sayit-search-input");
       if (searchInput && initialWord) {
         searchInput.value = initialWord;
       }
-      updateCardPosition(mouseX, mouseY);
+      updateCardPosition(targetX, targetY);
       if (initialWord) executeLookup(initialWord, "auto");
       return;
     }
@@ -708,7 +711,7 @@
       if (e.key === "Enter") triggerLookup();
     });
 
-    updateCardPosition(mouseX, mouseY);
+    updateCardPosition(targetX, targetY);
 
     if (initialWord) {
       executeLookup(initialWord, "auto");
@@ -1202,28 +1205,74 @@
       .replace(/'/g, "&#039;");
   }
 
-  // ── Highlight text to immediately show movable box ────────────────────────
+  function getSelectedText() {
+    const sel = window.getSelection()?.toString()?.trim();
+    if (sel) return sel;
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+      const start = active.selectionStart;
+      const end = active.selectionEnd;
+      if (typeof start === "number" && typeof end === "number" && end > start) {
+        return active.value.substring(start, end).trim();
+      }
+    }
+    return "";
+  }
+
+  function getTriggerCoords() {
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect && (rect.width > 0 || rect.height > 0)) {
+          return { x: rect.left, y: rect.bottom + 8 };
+        }
+      }
+    } catch (_) {}
+    return { x: mouseX, y: mouseY };
+  }
+
+  // ── Highlight text with Ctrl held to show movable box ─────────────────────
   document.addEventListener("mouseup", (e) => {
     if (host.contains(e.target)) return;
 
-    setTimeout(() => {
-      const selection = window.getSelection();
-      const text = selection?.toString()?.trim();
+    // Only open if Ctrl (or Cmd on Mac) is held during selection
+    if (!e.ctrlKey && !e.metaKey) return;
 
+    setTimeout(() => {
+      const text = getSelectedText();
       if (text && text.length > 0 && text.length <= 150) {
-        showCursorCard(text);
+        const coords = getTriggerCoords();
+        showCursorCard(text, coords.x, coords.y);
       }
     }, 20);
   });
 
-  // ── Keyboard Shortcut: Alt+S toggles box on any webpage ────────
+  // ── Keyboard Shortcuts: Ctrl+C (Control and copy) & Alt+S ─────────────────
   window.addEventListener(
     "keydown",
     (e) => {
+      // Alt+S toggles box on any webpage
       if (e.altKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
         e.preventDefault();
         e.stopPropagation();
         toggleCard();
+        return;
+      }
+
+      // Open only when pressing Control and copying a word (Ctrl+C / Cmd+C / Ctrl+Insert)
+      if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C" || e.code === "KeyC" || e.key === "Insert")) {
+        // Do not intercept if copying from inside the SayIt card itself
+        if (host.contains(e.target) || host.contains(document.activeElement)) return;
+
+        setTimeout(() => {
+          const text = getSelectedText();
+          if (text && text.length > 0 && text.length <= 150) {
+            const coords = getTriggerCoords();
+            showCursorCard(text, coords.x, coords.y);
+          }
+        }, 30);
       }
     },
     true
