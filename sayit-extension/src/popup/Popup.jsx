@@ -36,31 +36,72 @@ const BCP47_MAP = {
   ru: "ru-RU",
 };
 
+let cachedVoices = [];
+function populateVoices() {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    cachedVoices = window.speechSynthesis.getVoices();
+  }
+}
+populateVoices();
+if (typeof window !== "undefined" && "speechSynthesis" in window) {
+  window.speechSynthesis.onvoiceschanged = populateVoices;
+}
+
+function hasAnyVoiceForLang(langCode) {
+  populateVoices();
+  const voices =
+    cachedVoices.length > 0
+      ? cachedVoices
+      : "speechSynthesis" in window
+      ? window.speechSynthesis.getVoices()
+      : [];
+  if (!voices || voices.length === 0) return false;
+  const code = (langCode || "en").toLowerCase();
+  const bcp = (BCP47_MAP[code] || code).toLowerCase();
+  return voices.some(
+    (v) =>
+      v.lang.toLowerCase() === bcp ||
+      v.lang.toLowerCase().replace("_", "-") === bcp ||
+      v.lang.toLowerCase().startsWith(code)
+  );
+}
+
 function getBestVoice(langCode, gender) {
-  if (!("speechSynthesis" in window)) return null;
-  const voices = window.speechSynthesis.getVoices();
+  populateVoices();
+  const voices =
+    cachedVoices.length > 0
+      ? cachedVoices
+      : "speechSynthesis" in window
+      ? window.speechSynthesis.getVoices()
+      : [];
   if (!voices || voices.length === 0) return null;
 
   const code = (langCode || "en").toLowerCase();
-  const bcp = BCP47_MAP[code] || code;
+  const bcp = (BCP47_MAP[code] || code).toLowerCase();
 
   const langVoices = voices.filter(
     (v) =>
-      v.lang.toLowerCase() === bcp.toLowerCase() ||
-      v.lang.toLowerCase().replace("_", "-") === bcp.toLowerCase() ||
+      v.lang.toLowerCase() === bcp ||
+      v.lang.toLowerCase().replace("_", "-") === bcp ||
       v.lang.toLowerCase().startsWith(code)
   );
 
   const pool = langVoices.length > 0 ? langVoices : voices;
 
-  const femaleKeywords = ["zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "google us english", "google uk english female"];
-  const maleKeywords = ["david", "mark", "guy", "male", "george", "daniel", "google uk english male"];
+  const femaleKeywords = [
+    "zira", "aria", "jenny", "samantha", "victoria", "karen", "female",
+    "catherine", "susan", "helena", "eva", "google us english", "google uk english female",
+  ];
+  const maleKeywords = [
+    "david", "mark", "guy", "male", "george", "daniel",
+    "james", "richard", "stefan", "google uk english male",
+  ];
 
-  if (gender === "female") {
-    const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+  if (gender === "male") {
+    const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
     if (match) return match;
   } else {
-    const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+    const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
     if (match) return match;
   }
 
@@ -82,6 +123,7 @@ function MiniPlayer({ src, text, langCode, isDark }) {
   const speakFallback = () => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
+      populateVoices();
       const u = new SpeechSynthesisUtterance(text);
       const code = (langCode || "en").toLowerCase();
       u.lang = BCP47_MAP[code] || code;
@@ -90,9 +132,16 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       const voice = getBestVoice(code, gender);
       if (voice) u.voice = voice;
 
+      // Voice Pitch distinction:
+      // Male voice -> pitch: 0.8 (deep, masculine)
+      // Female voice -> pitch: 1.15 (bright, feminine)
+      u.pitch = gender === "male" ? 0.8 : 1.15;
+
       u.onend = () => setPlaying(false);
       u.onerror = () => setPlaying(false);
       setPlaying(true);
+
+      window._sayitCurrentUtterance = u;
       window.speechSynthesis.speak(u);
     }
   };
@@ -122,6 +171,13 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       return;
     }
 
+    // If browser has voice for this language, use speech synthesis (supports Female & Male toggles!)
+    if (hasAnyVoiceForLang(langCode)) {
+      speakFallback();
+      return;
+    }
+
+    // Otherwise, play native audio stream
     if (ref.current) {
       ref.current.playbackRate = speed;
       const p = ref.current.play();

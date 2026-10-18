@@ -122,14 +122,101 @@ async function standaloneLookup(word, language = "auto") {
     return pronunciationCache.get(cacheKey);
   }
 
-  // 1. Tier 1: Datamuse API (Instant 50-80ms response with Oxford definitions & IPA)
+  const langMap = {
+    en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
+    te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
+    ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
+    pt: "Portuguese", ru: "Russian",
+  };
+
+  // 1. Detect language & translate first via Google Lexical
+  let detectedLang = language && language !== "auto" ? language : null;
+  let gtxData = null;
+
+  try {
+    const sl = detectedLang || "auto";
+    const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=en&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(clean)}`;
+    const gtxRes = await fetch(gtxUrl);
+    if (gtxRes.ok) {
+      gtxData = await gtxRes.json();
+      if (!detectedLang) {
+        detectedLang = gtxData[2] || "en";
+      }
+    }
+  } catch (err) {
+    console.warn("[SayIt Background] Language detection warning:", err);
+  }
+
+  detectedLang = detectedLang || "en";
+
+  // 2. If it is NOT English (e.g. Spanish, French, German, Telugu, Hindi, Arabic, etc.)
+  if (detectedLang !== "en") {
+    const translation = gtxData?.[0]?.[0]?.[0] || clean;
+
+    let romanization = "";
+    if (Array.isArray(gtxData?.[0])) {
+      for (const item of gtxData[0]) {
+        if (Array.isArray(item)) {
+          for (const val of item) {
+            if (
+              typeof val === "string" &&
+              val.trim().length > 0 &&
+              val.toLowerCase() !== translation.toLowerCase() &&
+              val !== clean
+            ) {
+              romanization = val.trim();
+              break;
+            }
+          }
+        }
+        if (romanization) break;
+      }
+    }
+
+    let dictMeaning = "";
+    if (Array.isArray(gtxData?.[1])) {
+      for (const cat of gtxData[1]) {
+        const pos = cat[0] ? `(${cat[0]}) ` : "";
+        const terms = cat[1] ? cat[1].slice(0, 3).join(", ") : "";
+        if (terms) {
+          dictMeaning = `${pos}${terms}`;
+          break;
+        }
+      }
+    }
+
+    const meaning = dictMeaning || (translation.toLowerCase() !== clean.toLowerCase() ? translation : clean);
+    const syllables = romanization ? extractSyllables(romanization, "") : [clean];
+    const guide = romanization || clean;
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
+
+    const result = {
+      text: word,
+      word: word,
+      language: { code: detectedLang, name: langMap[detectedLang] || detectedLang.toUpperCase() },
+      language_code: detectedLang,
+      language_name: langMap[detectedLang] || detectedLang.toUpperCase(),
+      pronunciation: {
+        ipa: romanization ? `[${romanization}]` : `/${clean}/`,
+        syllables: syllables,
+        stressed_syllable: syllables[0] || clean,
+        beginner_guide: guide,
+      },
+      audio: { url: ttsUrl, dataUrl: ttsUrl },
+      meaning: meaning,
+    };
+
+    pronunciationCache.set(cacheKey, result);
+    return result;
+  }
+
+  // 3. For English words: Use Datamuse for rich Oxford definitions and IPA
   try {
     const dmUrl = `https://api.datamuse.com/words?sp=${encodeURIComponent(clean.toLowerCase())}&md=dr&ipa=1`;
     const dmRes = await fetch(dmUrl);
     if (dmRes.ok) {
       const items = await dmRes.json();
       if (Array.isArray(items) && items.length > 0) {
-        // Find best exact match
         const match = items.find((it) => it.word.toLowerCase() === clean.toLowerCase()) || items[0];
 
         let ipa = "";
@@ -177,7 +264,7 @@ async function standaloneLookup(word, language = "auto") {
     console.warn("[SayIt Background] Datamuse lookup warning:", dmErr);
   }
 
-  // 2. Tier 2: Free Dictionary API (Quick 900ms timeout)
+  // 4. Free Dictionary API fallback for English
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 900);
@@ -240,103 +327,16 @@ async function standaloneLookup(word, language = "auto") {
         }
       }
     }
-  } catch (fdErr) {
-    // Free dict timeout or error — continue to Google GTX
-  }
+  } catch (fdErr) {}
 
-  // 3. Tier 3: Google Lexical & Translation Engine (Supports all languages & phrases)
-  try {
-    const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(clean)}`;
-    const gtxRes = await fetch(gtxUrl);
-    if (gtxRes.ok) {
-      const gtx = await gtxRes.json();
-      const detectedLang = gtx[2] || "en";
-      const translation = gtx[0]?.[0]?.[0] || clean;
-
-      let romanization = "";
-      if (Array.isArray(gtx[0])) {
-        for (const item of gtx[0]) {
-          if (Array.isArray(item)) {
-            for (const val of item) {
-              if (
-                typeof val === "string" &&
-                val.trim().length > 0 &&
-                val.toLowerCase() !== translation.toLowerCase() &&
-                val !== clean
-              ) {
-                romanization = val.trim();
-                break;
-              }
-            }
-          }
-          if (romanization) break;
-        }
-      }
-
-      let dictMeaning = "";
-      if (Array.isArray(gtx[1])) {
-        for (const cat of gtx[1]) {
-          const pos = cat[0] ? `(${cat[0]}) ` : "";
-          const terms = cat[1] ? cat[1].slice(0, 3).join(", ") : "";
-          if (terms) {
-            dictMeaning = `${pos}${terms}`;
-            break;
-          }
-        }
-      }
-
-      let meaning = dictMeaning;
-      if (!meaning) {
-        if (translation.toLowerCase() !== clean.toLowerCase()) {
-          meaning = translation;
-        } else {
-          meaning = clean;
-        }
-      }
-
-      const syllables = romanization ? extractSyllables(romanization, "") : [clean];
-      const guide = romanization || buildGuide(syllables, "");
-
-      const langMap = {
-        en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
-        te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
-        ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
-        pt: "Portuguese", ru: "Russian",
-      };
-
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
-
-      const result = {
-        text: word,
-        word: word,
-        language: { code: detectedLang, name: langMap[detectedLang] || detectedLang.toUpperCase() },
-        language_code: detectedLang,
-        language_name: langMap[detectedLang] || detectedLang.toUpperCase(),
-        pronunciation: {
-          ipa: romanization ? `[${romanization}]` : `/${clean}/`,
-          syllables: syllables,
-          stressed_syllable: syllables[0] || clean,
-          beginner_guide: guide,
-        },
-        audio: { url: ttsUrl, dataUrl: ttsUrl },
-        meaning: meaning,
-      };
-
-      pronunciationCache.set(cacheKey, result);
-      return result;
-    }
-  } catch (err) {
-    console.warn("[SayIt Background] Google GTX lookup warning:", err);
-  }
-
-  // 4. Emergency Fallback
+  // 5. Emergency Fallback
   const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
   const baseline = {
     text: word,
     word: word,
-    language: { code: "auto", name: "Auto" },
-    language_code: "auto",
-    language_name: "Auto",
+    language: { code: "en", name: "English" },
+    language_code: "en",
+    language_name: "English",
     pronunciation: {
       ipa: `/${clean}/`,
       syllables: [clean],
@@ -344,7 +344,7 @@ async function standaloneLookup(word, language = "auto") {
       beginner_guide: clean,
     },
     audio: { url: ttsUrl, dataUrl: ttsUrl },
-    meaning: `Text: "${clean}"`,
+    meaning: clean,
   };
 
   return baseline;

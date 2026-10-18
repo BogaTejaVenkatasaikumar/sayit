@@ -1079,18 +1079,19 @@
 
     const resolvedUrl = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode || 'en'}&client=tw-ob&q=${encodeURIComponent(text.slice(0, 150))}`;
 
-    if (selectedGender === "male" && hasMaleVoiceForLang(langCode)) {
+    // If browser has a voice for this language, use speech synthesis (supports Female & Male toggles!)
+    if (hasAnyVoiceForLang(langCode)) {
       speakWithBrowser(text, langCode, () => {
-        playAudioElement(resolvedUrl, text, langCode);
+        playAudioElement(resolvedUrl);
       });
       return;
     }
 
-    // Default: Play native studio audio (works for Telugu, Hindi, Spanish, French, English, etc.)
-    playAudioElement(resolvedUrl, text, langCode);
+    // Otherwise, play native cloud audio stream (e.g. for Indian regional languages or rare scripts)
+    playAudioElement(resolvedUrl);
   }
 
-  function playAudioElement(url, text, langCode) {
+  function playAudioElement(url) {
     currentAudio = new Audio(url);
     currentAudio.playbackRate = playbackSpeed;
     currentAudio.onended = () => {
@@ -1101,23 +1102,11 @@
     const playPromise = currentAudio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn("[SayIt] HTML Audio play failed, falling back to Web Speech:", err);
-        speakWithBrowser(text, langCode);
+        console.warn("[SayIt] Audio element play error:", err);
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
       });
     }
-  }
-
-  function hasMaleVoiceForLang(langCode) {
-    if (!("speechSynthesis" in window)) return false;
-    const voices = window.speechSynthesis.getVoices();
-    if (!voices || voices.length === 0) return false;
-    const code = (langCode || "en").toLowerCase();
-    const bcp = (BCP47_MAP[code] || code).toLowerCase();
-    return voices.some(
-      (v) =>
-        (v.lang.toLowerCase() === bcp || v.lang.toLowerCase().startsWith(code)) &&
-        v.name.toLowerCase().includes("male")
-    );
   }
 
   const BCP47_MAP = {
@@ -1140,32 +1129,57 @@
     ru: "ru-RU",
   };
 
+  let cachedVoices = [];
+  function populateVoices() {
+    if ("speechSynthesis" in window) {
+      cachedVoices = window.speechSynthesis.getVoices();
+    }
+  }
+  populateVoices();
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.onvoiceschanged = populateVoices;
+  }
+
+  function hasAnyVoiceForLang(langCode) {
+    populateVoices();
+    const voices = cachedVoices.length > 0 ? cachedVoices : (("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : []);
+    if (!voices || voices.length === 0) return false;
+    const code = (langCode || "en").toLowerCase();
+    const bcp = (BCP47_MAP[code] || code).toLowerCase();
+    return voices.some(
+      (v) =>
+        v.lang.toLowerCase() === bcp ||
+        v.lang.toLowerCase().replace("_", "-") === bcp ||
+        v.lang.toLowerCase().startsWith(code)
+    );
+  }
+
   function getBestVoice(langCode, gender) {
-    if (!("speechSynthesis" in window)) return null;
-    const voices = window.speechSynthesis.getVoices();
+    populateVoices();
+    const voices = cachedVoices.length > 0 ? cachedVoices : (("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : []);
     if (!voices || voices.length === 0) return null;
 
     const code = (langCode || "en").toLowerCase();
-    const bcp = BCP47_MAP[code] || code;
+    const bcp = (BCP47_MAP[code] || code).toLowerCase();
 
     // Filter by language
     const langVoices = voices.filter(
       (v) =>
-        v.lang.toLowerCase() === bcp.toLowerCase() ||
-        v.lang.toLowerCase().replace("_", "-") === bcp.toLowerCase() ||
+        v.lang.toLowerCase() === bcp ||
+        v.lang.toLowerCase().replace("_", "-") === bcp ||
         v.lang.toLowerCase().startsWith(code)
     );
 
     const pool = langVoices.length > 0 ? langVoices : voices;
 
-    const femaleKeywords = ["zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "google us english", "google uk english female"];
-    const maleKeywords = ["david", "mark", "guy", "male", "george", "daniel", "google uk english male"];
+    const femaleKeywords = ["zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "catherine", "susan", "helena", "eva", "google us english", "google uk english female"];
+    const maleKeywords = ["david", "mark", "guy", "male", "george", "daniel", "james", "richard", "stefan", "google uk english male"];
 
-    if (gender === "female") {
-      const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+    if (gender === "male") {
+      const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
       if (match) return match;
     } else {
-      const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+      const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
       if (match) return match;
     }
 
@@ -1174,31 +1188,46 @@
 
   function speakWithBrowser(text, langCode, onErrorCallback = null) {
     try {
-      if ("speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        const code = (langCode || "en").toLowerCase();
-        utterance.lang = BCP47_MAP[code] || code;
-        utterance.rate = playbackSpeed;
-
-        const voice = getBestVoice(code, selectedGender);
-        if (voice) utterance.voice = voice;
-
-        utterance.onend = () => {
-          isAudioPlaying = false;
-          updatePlayButtonUI(false);
-        };
-        utterance.onerror = () => {
-          isAudioPlaying = false;
-          updatePlayButtonUI(false);
-          if (onErrorCallback) onErrorCallback();
-        };
-        window.speechSynthesis.speak(utterance);
-      } else {
+      if (!("speechSynthesis" in window)) {
         isAudioPlaying = false;
         updatePlayButtonUI(false);
         if (onErrorCallback) onErrorCallback();
+        return;
       }
+
+      window.speechSynthesis.cancel();
+      populateVoices();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      const code = (langCode || "en").toLowerCase();
+      utterance.lang = BCP47_MAP[code] || code;
+      utterance.rate = playbackSpeed;
+
+      // Select female or male voice
+      const voice = getBestVoice(code, selectedGender);
+      if (voice) {
+        utterance.voice = voice;
+      }
+
+      // Voice Pitch distinction:
+      // Male voice -> pitch: 0.8 (deep, masculine)
+      // Female voice -> pitch: 1.15 (bright, feminine)
+      utterance.pitch = selectedGender === "male" ? 0.8 : 1.15;
+
+      utterance.onend = () => {
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
+      };
+      utterance.onerror = () => {
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
+        if (onErrorCallback) onErrorCallback();
+      };
+
+      // Prevent Chrome garbage collection bug
+      window._sayitCurrentUtterance = utterance;
+
+      window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.error("[SayIt] SpeechSynthesis error:", e);
       isAudioPlaying = false;
