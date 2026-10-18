@@ -1,7 +1,5 @@
 // SayIt — Background Service Worker (Manifest V3)
 
-const API_BASE = "http://127.0.0.1:8000";
-
 // ── Install: register context menu ──────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
