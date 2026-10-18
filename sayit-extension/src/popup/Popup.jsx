@@ -105,18 +105,23 @@ function getBestVoice(langCode) {
   );
   if (langMale) return langMale;
 
-  // 2. Global verified male voice (e.g. Microsoft David Desktop)
-  const globalMale = voices.find((v) =>
-    maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
-    !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
-  );
-  if (globalMale) return globalMale;
+  // 2. Any voice in requested language that is not explicitly female
+  const langNonFemale = langVoices.find((v) => !femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+  if (langNonFemale) return langNonFemale;
 
-  // 3. Fallback: Any voice that is not female
-  const nonFemale = voices.find((v) => !femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
-  if (nonFemale) return nonFemale;
+  // 3. Any voice in the requested language
+  if (langVoices.length > 0) return langVoices[0];
 
-  return voices[0] || null;
+  // 4. If requested language is English or Latin, allow global male voice (Microsoft David)
+  if (code === "en" || ["es", "fr", "de", "it", "pt"].includes(code)) {
+    const globalMale = voices.find((v) =>
+      maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
+      !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+    );
+    if (globalMale) return globalMale;
+  }
+
+  return null;
 }
 
 // ── Audio Player for popup ───────────────────────────────────────────────────
@@ -219,13 +224,12 @@ function MiniPlayer({ src, text, langCode, isDark }) {
         (langCode || "").toLowerCase()
       );
 
-    // If text is in a non-Latin script (Telugu, Hindi, Arabic, Tamil, etc.) and browser has no native voice for it,
-    // play the fluent Google Cloud TTS stream directly!
-    if (isNonLatin && !hasAnyVoiceForLang(langCode)) {
+    // Non-Latin scripts (Hindi, Telugu, Tamil, Arabic, etc.) always play the native Google Cloud TTS stream!
+    if (isNonLatin) {
       if (ref.current) {
         ref.current.playbackRate = speed;
         ref.current.play().then(() => setPlaying(true)).catch((err) => {
-          console.warn("Audio element failed:", err);
+          console.warn("Audio element failed, falling back to speech synthesis:", err);
           speakFallback();
         });
       } else {

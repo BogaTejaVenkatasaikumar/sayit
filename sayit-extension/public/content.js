@@ -861,7 +861,14 @@
     const stressed = data.pronunciation?.stressed_syllable || "";
     const guide = data.pronunciation?.beginner_guide || "";
     const meaning = data.meaning || "";
-    const audioUrl = data.audio?.dataUrl || (data.audio?.url ? `${API_BASE}${data.audio.url}` : null);
+    const audioUrl =
+      (data.audio?.dataUrl && data.audio.dataUrl.startsWith("data:"))
+        ? data.audio.dataUrl
+        : (data.audio?.url && (data.audio.url.startsWith("http://") || data.audio.url.startsWith("https://") || data.audio.url.startsWith("data:")))
+        ? data.audio.url
+        : data.audio?.url
+        ? `${API_BASE}${data.audio.url}`
+        : null;
     const cleanIpa = (ipa || "").replace(/[\/\[\]]/g, "").trim().toLowerCase();
     const cleanText = (text || "").trim().toLowerCase();
     const isDistinctIpa = ipa && cleanIpa !== cleanText;
@@ -1063,9 +1070,9 @@
         (langCode || "").toLowerCase()
       );
 
-    // If text is in a non-Latin script (Telugu, Hindi, Arabic, Tamil, etc.) and browser has no native voice for it,
-    // play the fluent Google Cloud TTS stream directly so it never stays silent or chokes on English voices!
-    if (isNonLatin && !hasNativeVoiceForLang(langCode)) {
+    // Non-Latin scripts (Hindi, Telugu, Tamil, Arabic, Bengali, etc.) ALWAYS play the native Google Cloud TTS stream.
+    // Local browser voices (like Microsoft David) are English synthesizers and cannot read non-Latin scripts!
+    if (isNonLatin) {
       playAudioElement(resolvedUrl);
       return;
     }
@@ -1184,7 +1191,7 @@
       "google uk english female", "google us english"
     ];
 
-    // Filter language voices
+    // Filter language voices matching the requested language
     const langVoices = voices.filter(
       (v) =>
         v.lang.toLowerCase() === bcp ||
@@ -1199,18 +1206,23 @@
     );
     if (langMale) return langMale;
 
-    // 2. Verified global male voice (e.g. Microsoft David Desktop)
-    const globalMale = voices.find((v) =>
-      maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
-      !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
-    );
-    if (globalMale) return globalMale;
+    // 2. Any voice in requested language that is not explicitly female
+    const langNonFemale = langVoices.find((v) => !femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+    if (langNonFemale) return langNonFemale;
 
-    // 3. Fallback: Any voice that is not female
-    const nonFemale = voices.find((v) => !femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
-    if (nonFemale) return nonFemale;
+    // 3. Any voice in the requested language
+    if (langVoices.length > 0) return langVoices[0];
 
-    return voices[0] || null;
+    // 4. If requested language is English or Latin, allow global male voice (Microsoft David)
+    if (code === "en" || ["es", "fr", "de", "it", "pt"].includes(code)) {
+      const globalMale = voices.find((v) =>
+        maleKeywords.some((k) => v.name.toLowerCase().includes(k)) &&
+        !femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+      );
+      if (globalMale) return globalMale;
+    }
+
+    return null;
   }
 
   function speakWithBrowser(text, langCode, onErrorCallback = null) {

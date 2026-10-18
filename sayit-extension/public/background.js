@@ -142,13 +142,14 @@ async function fetchAudioAsBase64(url) {
   try {
     const res = await fetch(url);
     if (res.ok) {
-      const blob = await res.blob();
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = () => resolve(url);
-        reader.readAsDataURL(blob);
-      });
+      const arrayBuffer = await res.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+      }
+      return `data:audio/mp3;base64,${btoa(binary)}`;
     }
   } catch (e) {
     console.warn("[SayIt Background] Base64 audio fetch fallback to URL:", e);
