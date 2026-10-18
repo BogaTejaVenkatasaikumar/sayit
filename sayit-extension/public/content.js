@@ -491,20 +491,15 @@
   let mouseX = window.innerWidth / 2 - 180;
   let mouseY = 80;
   let activeCard = null;
-  let isFollowingCursor = true;
   let isMouseOverCard = false;
   let currentAudio = null;
 
-  // Track cursor position anywhere across the entire page
+  // Track cursor position only so when user selects text, we know where to open the box
   window.addEventListener(
     "mousemove",
     (e) => {
       mouseX = e.clientX;
       mouseY = e.clientY;
-
-      if (activeCard && isFollowingCursor && !isMouseOverCard) {
-        updateCardPosition(mouseX, mouseY);
-      }
     },
     { passive: true }
   );
@@ -589,16 +584,10 @@
       <div class="sayit-header">
         <div class="sayit-brand" style="display:flex;align-items:center;gap:8px;">
           <img id="sayit-header-logo-img" src="${currentTheme === 'dark' ? LOGO_DARK : LOGO_LIGHT}" alt="sayit" style="height:22px;width:auto;pointer-events:none;" />
-          <span class="sayit-header-badge" id="sayit-mode-indicator" title="Click to toggle Cursor Following / Pin mode">
-            ✦ Moving with Cursor
-          </span>
         </div>
         <div class="sayit-header-actions">
           <button class="sayit-icon-btn" id="sayit-theme-btn" title="Toggle Dark / Light Mode">
             ${currentTheme === "dark" ? "☀️" : "🌙"}
-          </button>
-          <button class="sayit-icon-btn ${isFollowingCursor ? 'active' : ''}" id="sayit-pin-btn" title="Toggle Move with Cursor / Pin">
-            📌
           </button>
           <button class="sayit-icon-btn" id="sayit-close-btn" title="Close">✕</button>
         </div>
@@ -622,7 +611,7 @@
 
       <div class="sayit-body" id="sayit-body-content">
         <div style="text-align:center;padding:20px 0;color:var(--text-muted);font-size:11px;">
-          Move cursor across words or select any text on the page to hear it spoken and view definitions.
+          Select any text on the page to hear it spoken and view definitions.
         </div>
       </div>
     `;
@@ -633,7 +622,7 @@
     const header = card.querySelector(".sayit-header");
     makeDraggable(card, header);
 
-    // Pause following when mouse interacts inside card
+    // Pause audio when closing
     card.addEventListener("mouseenter", () => {
       isMouseOverCard = true;
     });
@@ -642,9 +631,7 @@
     });
 
     const closeBtn = card.querySelector("#sayit-close-btn");
-    const pinBtn = card.querySelector("#sayit-pin-btn");
     const themeBtn = card.querySelector("#sayit-theme-btn");
-    const modeIndicator = card.querySelector("#sayit-mode-indicator");
     const searchInput = card.querySelector("#sayit-search-input");
     const submitBtn = card.querySelector("#sayit-submit-btn");
     const langSelect = card.querySelector("#sayit-lang-select");
@@ -665,15 +652,6 @@
       const logoImg = card.querySelector("#sayit-header-logo-img");
       if (logoImg) logoImg.src = currentTheme === "dark" ? LOGO_DARK : LOGO_LIGHT;
     });
-
-    const togglePin = () => {
-      isFollowingCursor = !isFollowingCursor;
-      pinBtn.classList.toggle("active", isFollowingCursor);
-      modeIndicator.textContent = isFollowingCursor ? "✦ Moving with Cursor" : "📌 Pinned";
-    };
-
-    pinBtn.addEventListener("click", togglePin);
-    modeIndicator.addEventListener("click", togglePin);
 
     const triggerLookup = () => {
       const q = searchInput.value.trim();
@@ -869,10 +847,6 @@
           textContainer.innerHTML = `<p class="sayit-meaning-val">${escapeHtml(meaning)}</p>`;
         }
       });
-    }
-
-    if (isFollowingCursor && !isMouseOverCard) {
-      updateCardPosition(mouseX, mouseY);
     }
   }
 
