@@ -471,7 +471,7 @@ export default function Popup() {
                 </div>
               ) : (
                 <div>
-                  <p className={`text-xs leading-relaxed ${isDark ? "text-neutral-200" : "text-neutral-800"}`}>
+                  <p className={`text-xs leading-relaxed whitespace-pre-line ${isDark ? "text-neutral-200" : "text-neutral-800"}`}>
                     {translatedMeaning || meaning}
                   </p>
                   {translatedMeaning && meaningLang !== "en" && (

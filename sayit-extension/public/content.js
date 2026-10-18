@@ -469,6 +469,7 @@
       font-size: 12px;
       color: var(--text-main);
       line-height: 1.5;
+      white-space: pre-line;
     }
     .sayit-trans-credit {
       font-size: 10px;
