@@ -1249,7 +1249,7 @@
     }, 20);
   });
 
-  // ── Keyboard Shortcuts: Ctrl+C (Control and copy) & Alt+S ─────────────────
+  // ── Keyboard Shortcut: Alt+S toggles box on any webpage ───────────────────
   window.addEventListener(
     "keydown",
     (e) => {
@@ -1258,21 +1258,6 @@
         e.preventDefault();
         e.stopPropagation();
         toggleCard();
-        return;
-      }
-
-      // Open only when pressing Control and copying a word (Ctrl+C / Cmd+C / Ctrl+Insert)
-      if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C" || e.code === "KeyC" || e.key === "Insert")) {
-        // Do not intercept if copying from inside the SayIt card itself
-        if (host.contains(e.target) || host.contains(document.activeElement)) return;
-
-        setTimeout(() => {
-          const text = getSelectedText();
-          if (text && text.length > 0 && text.length <= 150) {
-            const coords = getTriggerCoords();
-            showCursorCard(text, coords.x, coords.y);
-          }
-        }, 30);
       }
     },
     true
