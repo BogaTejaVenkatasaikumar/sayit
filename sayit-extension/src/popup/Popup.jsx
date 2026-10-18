@@ -73,12 +73,9 @@ function MiniPlayer({ src, text, langCode, isDark }) {
     const el = ref.current;
     if (!el) return;
     const onEnd = () => setPlaying(false);
-    const onPause = () => setPlaying(false);
     el.addEventListener("ended", onEnd);
-    el.addEventListener("pause", onPause);
     return () => {
       el.removeEventListener("ended", onEnd);
-      el.removeEventListener("pause", onPause);
     };
   }, [src]);
 

@@ -146,15 +146,18 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      will-change: transform;
-      transform: translate3d(20px, 20px, 0);
+      transform: translate(20px, 20px);
       animation: sayit-fade-in 0.15s ease-out;
       transition: background 0.2s ease, border-color 0.2s ease;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      backface-visibility: hidden;
+      image-rendering: -webkit-optimize-contrast;
     }
 
     @keyframes sayit-fade-in {
-      from { opacity: 0; transform: scale(0.96) translate3d(20px, 20px, 0); }
-      to { opacity: 1; transform: scale(1) translate3d(20px, 20px, 0); }
+      from { opacity: 0; transform: scale(0.97) translate(20px, 20px); }
+      to { opacity: 1; transform: scale(1) translate(20px, 20px); }
     }
 
     /* Header */
@@ -562,7 +565,7 @@
       posY = Math.max(12, cy - cardHeight - offset);
     }
 
-    activeCard.style.transform = `translate3d(${posX}px, ${posY}px, 0)`;
+    activeCard.style.transform = `translate(${Math.round(posX)}px, ${Math.round(posY)}px)`;
   }
 
   // Dragging support for header
@@ -588,7 +591,7 @@
         let nextX = Math.max(10, Math.min(window.innerWidth - element.offsetWidth - 10, initTransformX + dx));
         let nextY = Math.max(10, Math.min(window.innerHeight - 50, initTransformY + dy));
 
-        element.style.transform = `translate3d(${nextX}px, ${nextY}px, 0)`;
+        element.style.transform = `translate(${Math.round(nextX)}px, ${Math.round(nextY)}px)`;
       };
 
       const onMouseUp = () => {
@@ -940,11 +943,11 @@
   }
 
   function playPronunciationAudio(text, audioUrl, langCode) {
-    // If currently playing, toggle to pause
+    // If currently playing, pause (don't destroy the audio — keep it for resume)
     if (isAudioPlaying) {
       if (currentAudio) {
         currentAudio.pause();
-        currentAudio = null;
+        // Don't null it — we want to resume from here
       }
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
@@ -954,6 +957,19 @@
       return;
     }
 
+    // If we have a paused audio element, resume it
+    if (currentAudio && currentAudio.paused && currentAudio.currentTime > 0 && !currentAudio.ended) {
+      isAudioPlaying = true;
+      updatePlayButtonUI(true);
+      currentAudio.playbackRate = playbackSpeed;
+      currentAudio.play().catch(() => {
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
+      });
+      return;
+    }
+
+    // Start fresh playback
     if (currentAudio) {
       currentAudio.pause();
       currentAudio = null;
@@ -967,10 +983,7 @@
       currentAudio.playbackRate = playbackSpeed;
       currentAudio.onended = () => {
         isAudioPlaying = false;
-        updatePlayButtonUI(false);
-      };
-      currentAudio.onpause = () => {
-        isAudioPlaying = false;
+        currentAudio = null;
         updatePlayButtonUI(false);
       };
       const playPromise = currentAudio.play();
