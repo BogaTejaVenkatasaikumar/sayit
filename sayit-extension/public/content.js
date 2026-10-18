@@ -585,10 +585,36 @@
     });
   }
 
+  function cleanWordForLookup(raw) {
+    if (!raw) return "";
+    return raw
+      .trim()
+      .replace(/^[\s"'“‘«‹(\[{<—–\.,;:!?]+|[\s"'”’»›)\]}>—–\.,;:!?]+$/g, "")
+      .trim();
+  }
+
+  function getLanguageName(code) {
+    if (!code || code === "auto") return "Auto";
+    try {
+      const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code);
+      if (name) return name;
+    } catch (_) {}
+    const fallbackMap = {
+      en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
+      te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
+      ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
+      pt: "Portuguese", ru: "Russian", nl: "Dutch", pl: "Polish", tr: "Turkish",
+      sv: "Swedish", el: "Greek", uk: "Ukrainian", vi: "Vietnamese", mr: "Marathi",
+      gu: "Gujarati", ur: "Urdu", fa: "Persian", id: "Indonesian", th: "Thai",
+    };
+    return fallbackMap[code.toLowerCase()] || code.toUpperCase();
+  }
+
   // ── Show or Toggle Full Movable Box ─────────────────────────────────────────
   function showCursorCard(initialWord = "", customX = null, customY = null) {
     const targetX = customX !== null ? customX : mouseX;
     const targetY = customY !== null ? customY : mouseY;
+    initialWord = cleanWordForLookup(initialWord);
 
     if (activeCard) {
       const searchInput = activeCard.querySelector("#sayit-search-input");
@@ -705,6 +731,9 @@
   // ── Lookup Pronunciation & Meaning (Proxied via background script to bypass mixed content) ──
   async function executeLookup(word, language = "auto") {
     if (!activeCard) return;
+    const cleanWord = cleanWordForLookup(word) || (word ? word.trim() : "");
+    if (!cleanWord) return;
+
     const bodyContent = activeCard.querySelector("#sayit-body-content");
     bodyContent.innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 0;gap:7px;">
@@ -716,35 +745,36 @@
     try {
       if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
         chrome.runtime.sendMessage(
-          { type: "API_PRONUNCIATION", text: word, language },
+          { type: "API_PRONUNCIATION", text: cleanWord, language },
           (response) => {
             if (chrome.runtime.lastError || !response || !response.success) {
               const errMsg = response?.error || chrome.runtime.lastError?.message || "Failed to reach backend";
-              fallbackDirectFetch(word, language, errMsg);
+              fallbackDirectFetch(cleanWord, language, errMsg);
             } else {
               renderResult(response.data);
             }
           }
         );
       } else {
-        fallbackDirectFetch(word, language);
+        fallbackDirectFetch(cleanWord, language);
       }
     } catch {
-      fallbackDirectFetch(word, language);
+      fallbackDirectFetch(cleanWord, language);
     }
   }
 
   async function fallbackDirectFetch(word, language, lastError = "") {
     const bodyContent = activeCard?.querySelector("#sayit-body-content");
     if (!bodyContent) return;
+    const clean = cleanWordForLookup(word) || (word ? word.trim() : "");
 
     try {
-      const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(word)}`;
+      const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(clean)}`;
       const gtxRes = await fetch(gtxUrl);
       if (gtxRes.ok) {
         const gtx = await gtxRes.json();
         const detectedLang = gtx[2] || "en";
-        const translation = gtx[0]?.[0]?.[0] || word;
+        const translation = gtx[0]?.[0]?.[0] || clean;
 
         let romanization = "";
         if (Array.isArray(gtx[0])) {
@@ -755,7 +785,7 @@
                   typeof val === "string" &&
                   val.trim().length > 0 &&
                   val.toLowerCase() !== translation.toLowerCase() &&
-                  val !== word
+                  val !== clean
                 ) {
                   romanization = val.trim();
                   break;
@@ -766,27 +796,34 @@
           }
         }
 
-        const langMap = {
-          en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
-          te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
-          ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
-          pt: "Portuguese", ru: "Russian",
-        };
+        let dictMeaning = "";
+        if (Array.isArray(gtx[1])) {
+          for (const cat of gtx[1]) {
+            const pos = cat[0] ? `(${cat[0]}) ` : "";
+            const terms = cat[1] ? cat[1].slice(0, 3).join(", ") : "";
+            if (terms) {
+              dictMeaning = `${pos}${terms}`;
+              break;
+            }
+          }
+        }
 
-        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(word.slice(0, 150))}`;
+        const meaning = dictMeaning || (translation.toLowerCase() !== clean.toLowerCase() ? translation : clean);
+        const langName = getLanguageName(detectedLang);
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
 
         renderResult({
           text: word,
-          word: word,
-          language: { code: detectedLang, name: langMap[detectedLang] || detectedLang.toUpperCase() },
+          word: clean,
+          language: { code: detectedLang, name: langName },
           pronunciation: {
-            ipa: romanization ? `[${romanization}]` : `/${word}/`,
-            syllables: romanization ? [romanization] : [word],
-            stressed_syllable: word,
-            beginner_guide: romanization || word,
+            ipa: romanization ? `[${romanization}]` : `/${clean}/`,
+            syllables: romanization ? [romanization] : [clean],
+            stressed_syllable: clean,
+            beginner_guide: romanization || clean,
           },
           audio: { url: ttsUrl, dataUrl: ttsUrl },
-          meaning: translation !== word ? translation : word,
+          meaning: meaning,
         });
         return;
       }
@@ -795,19 +832,19 @@
     }
 
     // Emergency baseline
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(word.slice(0, 150))}`;
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
     renderResult({
       text: word,
-      word: word,
+      word: clean,
       language: { code: "auto", name: "Auto" },
       pronunciation: {
-        ipa: `/${word}/`,
-        syllables: [word],
-        stressed_syllable: word,
-        beginner_guide: word,
+        ipa: `/${clean}/`,
+        syllables: [clean],
+        stressed_syllable: clean,
+        beginner_guide: clean,
       },
       audio: { url: ttsUrl, dataUrl: ttsUrl },
-      meaning: word,
+      meaning: clean,
     });
   }
 
@@ -1020,7 +1057,11 @@
 
     const resolvedUrl = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode || 'en'}&client=tw-ob&q=${encodeURIComponent(text.slice(0, 150))}`;
 
-    const isNonLatin = hasNonLatinScript(text) || ["te", "hi", "ta", "kn", "ml", "bn", "ar", "zh", "ja", "ko"].includes((langCode || "").toLowerCase());
+    const isNonLatin =
+      hasNonLatinScript(text) ||
+      ["te", "hi", "ta", "kn", "ml", "bn", "ar", "zh", "ja", "ko", "mr", "gu", "ur", "fa", "th", "ru", "uk", "el"].includes(
+        (langCode || "").toLowerCase()
+      );
 
     // If text is in a non-Latin script (Telugu, Hindi, Arabic, Tamil, etc.) and browser has no native voice for it,
     // play the fluent Google Cloud TTS stream directly so it never stays silent or chokes on English voices!
@@ -1075,7 +1116,7 @@
   }
 
   function hasNonLatinScript(str) {
-    return /[\u0600-\u06FF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0E00-\u0E7F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(str);
+    return /[\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u08A0-\u08FF\u0900-\u0DFF\u0E00-\u0E7F\u0E80-\u0EFF\u0F00-\u0FFF\u1000-\u109F\u1200-\u137F\u1780-\u17FF\u1800-\u18AF\u19E0-\u19FF\u2D30-\u2D7F\u3040-\u30FF\u3100-\u312F\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7AF\uD7B0-\uD7FF\uF900-\uFAFF]/.test(str);
   }
 
   function hasNativeVoiceForLang(langCode) {
@@ -1182,6 +1223,9 @@
       }
 
       window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
       populateVoices();
 
       isAudioPlaying = true;
@@ -1202,11 +1246,29 @@
       // Male voice pitch: 0.8 (rich, deep, masculine)
       utterance.pitch = 0.8;
 
+      let started = false;
+      const watchdog = setTimeout(() => {
+        if (!started) {
+          console.warn("[SayIt] SpeechSynthesis stalled, triggering audio fallback");
+          window.speechSynthesis.cancel();
+          if (onErrorCallback) onErrorCallback();
+        }
+      }, 450);
+
+      utterance.onstart = () => {
+        started = true;
+        clearTimeout(watchdog);
+      };
+
       utterance.onend = () => {
+        clearTimeout(watchdog);
         isAudioPlaying = false;
         updatePlayButtonUI(false);
       };
-      utterance.onerror = () => {
+
+      utterance.onerror = (e) => {
+        clearTimeout(watchdog);
+        console.warn("[SayIt] Utterance error:", e);
         isAudioPlaying = false;
         updatePlayButtonUI(false);
         if (onErrorCallback) onErrorCallback();

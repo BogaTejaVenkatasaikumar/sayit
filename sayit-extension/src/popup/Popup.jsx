@@ -121,7 +121,7 @@ function getBestVoice(langCode) {
 
 // ── Audio Player for popup ───────────────────────────────────────────────────
 function hasNonLatinScript(str) {
-  return /[\u0600-\u06FF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0E00-\u0E7F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(str);
+  return /[\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u08A0-\u08FF\u0900-\u0DFF\u0E00-\u0E7F\u0E80-\u0EFF\u0F00-\u0FFF\u1000-\u109F\u1200-\u137F\u1780-\u17FF\u1800-\u18AF\u19E0-\u19FF\u2D30-\u2D7F\u3040-\u30FF\u3100-\u312F\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7AF\uD7B0-\uD7FF\uF900-\uFAFF]/.test(str);
 }
 
 function MiniPlayer({ src, text, langCode, isDark }) {
@@ -132,6 +132,9 @@ function MiniPlayer({ src, text, langCode, isDark }) {
   const speakFallback = () => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
       populateVoices();
       const u = new SpeechSynthesisUtterance(text);
       const code = (langCode || "en").toLowerCase();
@@ -147,8 +150,37 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       // Dedicated male voice: pitch 0.8 (deep, masculine)
       u.pitch = 0.8;
 
-      u.onend = () => setPlaying(false);
-      u.onerror = () => setPlaying(false);
+      let started = false;
+      const watchdog = setTimeout(() => {
+        if (!started) {
+          console.warn("[SayIt Popup] SpeechSynthesis stalled, triggering audio element");
+          window.speechSynthesis.cancel();
+          if (ref.current) {
+            ref.current.playbackRate = speed;
+            ref.current.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+          } else {
+            setPlaying(false);
+          }
+        }
+      }, 450);
+
+      u.onstart = () => {
+        started = true;
+        clearTimeout(watchdog);
+      };
+
+      u.onend = () => {
+        clearTimeout(watchdog);
+        setPlaying(false);
+      };
+      u.onerror = () => {
+        clearTimeout(watchdog);
+        setPlaying(false);
+        if (ref.current) {
+          ref.current.playbackRate = speed;
+          ref.current.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+        }
+      };
       setPlaying(true);
 
       window._sayitCurrentUtterance = u;
@@ -181,7 +213,11 @@ function MiniPlayer({ src, text, langCode, isDark }) {
       return;
     }
 
-    const isNonLatin = hasNonLatinScript(text || "") || ["te", "hi", "ta", "kn", "ml", "bn", "ar", "zh", "ja", "ko"].includes((langCode || "").toLowerCase());
+    const isNonLatin =
+      hasNonLatinScript(text || "") ||
+      ["te", "hi", "ta", "kn", "ml", "bn", "ar", "zh", "ja", "ko", "mr", "gu", "ur", "fa", "th", "ru", "uk", "el"].includes(
+        (langCode || "").toLowerCase()
+      );
 
     // If text is in a non-Latin script (Telugu, Hindi, Arabic, Tamil, etc.) and browser has no native voice for it,
     // play the fluent Google Cloud TTS stream directly!
@@ -335,17 +371,25 @@ export default function Popup() {
     }
   }, []);
 
+  const cleanWordForLookup = (raw) => {
+    if (!raw) return "";
+    return raw
+      .trim()
+      .replace(/^[\s"'“‘«‹(\[{<—–\.,;:!?]+|[\s"'”’»›)\]}>—–\.,;:!?]+$/g, "")
+      .trim();
+  };
+
   const handlePronounce = async (text = word, lang = language) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+    const cleaned = cleanWordForLookup(text) || (text ? text.trim() : "");
+    if (!cleaned) return;
     setStatus("loading");
     setError(null);
     setResult(null);
     setMeaningLang("en");
     setTranslatedMeaning("");
     try {
-      const data = await pronounce({ text: trimmed, language: lang });
-      setResult({ ...data, searchText: trimmed });
+      const data = await pronounce({ text: cleaned, language: lang });
+      setResult({ ...data, searchText: cleaned });
       setStatus("result");
     } catch (err) {
       setError(err.message || "Failed to analyze word");
@@ -560,7 +604,7 @@ export default function Popup() {
           {/* Audio Player */}
           <div className={`px-4 py-2.5 border-b ${isDark ? "border-neutral-800/90 bg-[#121215]" : "border-neutral-200 bg-white"}`}>
             <MiniPlayer
-              src={result.audio?.url ? audioUrl(result.audio.url) : null}
+              src={result.audio?.dataUrl || (result.audio?.url ? audioUrl(result.audio.url) : null)}
               text={result.text || result.word || result.searchText}
               langCode={langCode}
               isDark={isDark}

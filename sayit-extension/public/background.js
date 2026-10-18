@@ -113,21 +113,57 @@ function formatDatamuseDef(raw) {
   return raw.trim();
 }
 
+function cleanWordForLookup(raw) {
+  if (!raw) return "";
+  return raw
+    .trim()
+    .replace(/^[\s"'“‘«‹(\[{<—–\.,;:!?]+|[\s"'”’»›)\]}>—–\.,;:!?]+$/g, "")
+    .trim();
+}
+
+function getLanguageName(code) {
+  if (!code || code === "auto") return "Auto";
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code);
+    if (name) return name;
+  } catch (_) {}
+  const fallbackMap = {
+    en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
+    te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
+    ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
+    pt: "Portuguese", ru: "Russian", nl: "Dutch", pl: "Polish", tr: "Turkish",
+    sv: "Swedish", el: "Greek", uk: "Ukrainian", vi: "Vietnamese", mr: "Marathi",
+    gu: "Gujarati", ur: "Urdu", fa: "Persian", id: "Indonesian", th: "Thai",
+  };
+  return fallbackMap[code.toLowerCase()] || code.toUpperCase();
+}
+
+async function fetchAudioAsBase64(url) {
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      const blob = await res.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => resolve(url);
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch (e) {
+    console.warn("[SayIt Background] Base64 audio fetch fallback to URL:", e);
+  }
+  return url;
+}
+
 // ── Ultra-Fast Standalone Dictionary Engine (Sub-100ms) ─────────────────────
 async function standaloneLookup(word, language = "auto") {
-  const clean = word.trim();
+  const clean = cleanWordForLookup(word) || word.trim();
   const cacheKey = `${clean.toLowerCase()}:${language}`;
 
   if (pronunciationCache.has(cacheKey)) {
     return pronunciationCache.get(cacheKey);
   }
-
-  const langMap = {
-    en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
-    te: "Telugu", ta: "Tamil", kn: "Kannada", ml: "Malayalam", bn: "Bengali",
-    ja: "Japanese", zh: "Chinese", ko: "Korean", ar: "Arabic", it: "Italian",
-    pt: "Portuguese", ru: "Russian",
-  };
 
   // 1. Detect language & translate first via Google Lexical
   let detectedLang = language && language !== "auto" ? language : null;
@@ -148,6 +184,7 @@ async function standaloneLookup(word, language = "auto") {
   }
 
   detectedLang = detectedLang || "en";
+  const langName = getLanguageName(detectedLang);
 
   // 2. If it is NOT English (e.g. Spanish, French, German, Telugu, Hindi, Arabic, etc.)
   if (detectedLang !== "en") {
@@ -189,20 +226,21 @@ async function standaloneLookup(word, language = "auto") {
     const syllables = romanization ? extractSyllables(romanization, "") : [clean];
     const guide = romanization || clean;
     const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
+    const audioDataUrl = await fetchAudioAsBase64(ttsUrl);
 
     const result = {
       text: word,
       word: word,
-      language: { code: detectedLang, name: langMap[detectedLang] || detectedLang.toUpperCase() },
+      language: { code: detectedLang, name: langName },
       language_code: detectedLang,
-      language_name: langMap[detectedLang] || detectedLang.toUpperCase(),
+      language_name: langName,
       pronunciation: {
         ipa: romanization ? `[${romanization}]` : `/${clean}/`,
         syllables: syllables,
         stressed_syllable: syllables[0] || clean,
         beginner_guide: guide,
       },
-      audio: { url: ttsUrl, dataUrl: ttsUrl },
+      audio: { url: ttsUrl, dataUrl: audioDataUrl },
       meaning: meaning,
     };
 
@@ -210,7 +248,7 @@ async function standaloneLookup(word, language = "auto") {
     return result;
   }
 
-  // 3. For English words: Use Datamuse for rich Oxford definitions and IPA
+  // 3. For English words: Tier 1 - Use Datamuse for rich Oxford definitions and IPA
   try {
     const dmUrl = `https://api.datamuse.com/words?sp=${encodeURIComponent(clean.toLowerCase())}&md=dr&ipa=1`;
     const dmRes = await fetch(dmUrl);
@@ -238,6 +276,7 @@ async function standaloneLookup(word, language = "auto") {
           const syllables = extractSyllables(clean, ipa);
           const guide = buildGuide(syllables, ipa);
           const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
+          const audioDataUrl = await fetchAudioAsBase64(ttsUrl);
 
           const result = {
             text: word,
@@ -251,7 +290,7 @@ async function standaloneLookup(word, language = "auto") {
               stressed_syllable: syllables[0] || clean,
               beginner_guide: guide,
             },
-            audio: { url: ttsUrl, dataUrl: ttsUrl },
+            audio: { url: ttsUrl, dataUrl: audioDataUrl },
             meaning: meaning,
           };
 
@@ -264,10 +303,10 @@ async function standaloneLookup(word, language = "auto") {
     console.warn("[SayIt Background] Datamuse lookup warning:", dmErr);
   }
 
-  // 4. Free Dictionary API fallback for English
+  // 4. English Tier 2: Free Dictionary API fallback
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 900);
+    const timeout = setTimeout(() => controller.abort(), 1200);
     const dictRes = await fetch(
       `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(clean.toLowerCase())}`,
       { signal: controller.signal }
@@ -305,6 +344,7 @@ async function standaloneLookup(word, language = "auto") {
           const syllables = extractSyllables(clean, ipa);
           const guide = buildGuide(syllables, ipa);
           const finalAudio = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
+          const audioDataUrl = await fetchAudioAsBase64(finalAudio);
 
           const result = {
             text: word,
@@ -318,7 +358,7 @@ async function standaloneLookup(word, language = "auto") {
               stressed_syllable: syllables[0] || clean,
               beginner_guide: guide,
             },
-            audio: { url: finalAudio, dataUrl: finalAudio },
+            audio: { url: finalAudio, dataUrl: audioDataUrl },
             meaning: meaning,
           };
 
@@ -329,8 +369,23 @@ async function standaloneLookup(word, language = "auto") {
     }
   } catch (fdErr) {}
 
-  // 5. Emergency Fallback
+  // 5. English Tier 3: Extract from Google Lexical dictionary data if available
+  let gtxMeaning = "";
+  if (Array.isArray(gtxData?.[1])) {
+    for (const cat of gtxData[1]) {
+      const pos = cat[0] ? `(${cat[0]}) ` : "";
+      const terms = cat[1] ? cat[1].slice(0, 3).join(", ") : "";
+      if (terms) {
+        gtxMeaning = `${pos}${terms}`;
+        break;
+      }
+    }
+  }
+
+  const finalMeaning = gtxMeaning || clean;
   const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
+  const audioDataUrl = await fetchAudioAsBase64(ttsUrl);
+
   const baseline = {
     text: word,
     word: word,
@@ -339,14 +394,15 @@ async function standaloneLookup(word, language = "auto") {
     language_name: "English",
     pronunciation: {
       ipa: `/${clean}/`,
-      syllables: [clean],
+      syllables: extractSyllables(clean, ""),
       stressed_syllable: clean,
       beginner_guide: clean,
     },
-    audio: { url: ttsUrl, dataUrl: ttsUrl },
-    meaning: clean,
+    audio: { url: ttsUrl, dataUrl: audioDataUrl },
+    meaning: finalMeaning,
   };
 
+  pronunciationCache.set(cacheKey, baseline);
   return baseline;
 }
 
