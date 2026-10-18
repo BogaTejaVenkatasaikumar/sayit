@@ -10,10 +10,11 @@ from app.providers.tts.edge_tts import BaseTTSProvider, edge_tts_provider
 
 
 class TTSService:
-    """TTS Service manager with resilient multi-provider fallback."""
+    """TTS Service manager with resilient multi-provider fallback and instant audio caching."""
 
     def __init__(self, provider: Optional[BaseTTSProvider] = None):
         self.provider = provider or edge_tts_provider
+        self._cache: Dict[str, Dict[str, Any]] = {}
         os.makedirs(settings.AUDIO_DIR, exist_ok=True)
 
     async def synthesize(
@@ -27,6 +28,12 @@ class TTSService:
         Synthesizes TTS audio for text and language.
         Returns dictionary with audio metadata and relative URL, or None if TTS fails.
         """
+        cache_key = f"{text.strip().lower()}:{language_code}:{speed}:{accent}"
+        if cache_key in self._cache:
+            cached = self._cache[cache_key]
+            if os.path.exists(cached.get("file_path", "")):
+                return cached
+
         filename = f"{uuid.uuid4().hex[:12]}.mp3"
         file_path = os.path.join(settings.AUDIO_DIR, filename)
 
@@ -46,13 +53,15 @@ class TTSService:
             )
 
             relative_url = f"/audio/{os.path.basename(output_path)}"
-            return {
+            result = {
                 "url": relative_url,
                 "file_path": output_path,
                 "speed": speed,
                 "accent": accent,
                 "provider": "edge-tts",
             }
+            self._cache[cache_key] = result
+            return result
         except Exception as e:
             logger.warning(f"Primary TTS provider failed ({str(e)}). Falling back to Google TTS...")
 
@@ -72,13 +81,15 @@ class TTSService:
 
                     relative_url = f"/audio/{os.path.basename(file_path)}"
                     logger.info(f"Google TTS fallback succeeded for '{text}' ({len(audio_bytes)} bytes)")
-                    return {
+                    result = {
                         "url": relative_url,
                         "file_path": file_path,
                         "speed": speed,
                         "accent": accent,
                         "provider": "google-tts",
                     }
+                    self._cache[cache_key] = result
+                    return result
         except Exception as fallback_err:
             logger.error(f"Fallback Google TTS failed: {str(fallback_err)}")
 

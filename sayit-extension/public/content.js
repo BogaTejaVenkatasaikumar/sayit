@@ -357,15 +357,21 @@
       border-radius: 7px;
     }
 
-    /* Audio button */
+    /* Audio button & speed selector */
     .sayit-audio-bar {
       display: flex;
       align-items: center;
-      gap: 9px;
-      padding: 8px 12px;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
       background: var(--bg-section);
       border-radius: 12px;
       border: 1px solid var(--border-subtle);
+    }
+    .sayit-audio-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
     }
     .sayit-play-btn {
       background: var(--accent-grad);
@@ -387,6 +393,35 @@
     .sayit-audio-info {
       font-size: 11px;
       color: var(--text-muted);
+    }
+    .sayit-speed-selector {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      background: var(--chip-bg);
+      border: 1px solid var(--chip-border);
+      border-radius: 8px;
+      padding: 2px;
+    }
+    .sayit-speed-btn {
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding: 2px 5px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .sayit-speed-btn:hover {
+      color: var(--text-main);
+    }
+    .sayit-speed-btn.active {
+      background: var(--chip-active-bg);
+      color: var(--chip-active-text);
+      border: 1px solid var(--chip-active-border);
+      font-weight: 700;
     }
 
     /* Meaning with Translator */
@@ -493,6 +528,8 @@
   let activeCard = null;
   let isMouseOverCard = false;
   let currentAudio = null;
+  let playbackSpeed = 1.0;
+  let isAudioPlaying = false;
 
   // Track cursor position only so when user selects text, we know where to open the box
   window.addEventListener(
@@ -767,13 +804,20 @@
       </div>
 
       <div class="sayit-audio-bar">
-        <button class="sayit-play-btn" id="sayit-card-play-audio">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          Play Voice
-        </button>
-        <span class="sayit-audio-info">${audioUrl ? "Native audio" : "Browser voice"}</span>
+        <div class="sayit-audio-left">
+          <button class="sayit-play-btn" id="sayit-card-play-audio" title="Play or pause pronunciation">
+            <svg id="sayit-card-play-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span id="sayit-card-play-label">Play Voice</span>
+          </button>
+          <span class="sayit-audio-info">${audioUrl ? "Native audio" : "Browser voice"}</span>
+        </div>
+        <div class="sayit-speed-selector">
+          <button class="sayit-speed-btn ${playbackSpeed === 0.75 ? 'active' : ''}" data-speed="0.75" title="0.75x speed">0.75x</button>
+          <button class="sayit-speed-btn ${playbackSpeed === 1.0 ? 'active' : ''}" data-speed="1.0" title="Normal 1x speed">1x</button>
+          <button class="sayit-speed-btn ${playbackSpeed === 1.25 ? 'active' : ''}" data-speed="1.25" title="1.25x speed">1.25x</button>
+        </div>
       </div>
 
       ${meaning ? `
@@ -808,21 +852,28 @@
           </div>
         </div>
       ` : ''}
-
-      ${tip ? `
-        <div class="sayit-tip-banner">
-          <strong style="color:var(--text-accent);">Tip: </strong>${escapeHtml(tip)}
-        </div>
-      ` : ''}
     `;
 
-    // Universal audio playback with browser speech fallback
+    // Universal audio playback with Play/Pause state and Speed controls
     const playBtn = bodyContent.querySelector("#sayit-card-play-audio");
     if (playBtn) {
       playBtn.addEventListener("click", () => {
         playPronunciationAudio(text, audioUrl, langCode);
       });
     }
+
+    const speedButtons = bodyContent.querySelectorAll(".sayit-speed-btn");
+    speedButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const val = parseFloat(btn.getAttribute("data-speed"));
+        if (!val) return;
+        playbackSpeed = val;
+        speedButtons.forEach((b) => b.classList.toggle("active", b === btn));
+        if (currentAudio) {
+          currentAudio.playbackRate = playbackSpeed;
+        }
+      });
+    });
 
     // Meaning Translation Dropdown
     const transSelect = bodyContent.querySelector("#sayit-trans-dropdown");
@@ -875,14 +926,53 @@
     }
   }
 
+  function updatePlayButtonUI(isPlaying) {
+    if (!activeCard) return;
+    const playIcon = activeCard.querySelector("#sayit-card-play-icon");
+    const playLabel = activeCard.querySelector("#sayit-card-play-label");
+    if (isPlaying) {
+      if (playIcon) playIcon.innerHTML = `<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>`;
+      if (playLabel) playLabel.textContent = "Pause";
+    } else {
+      if (playIcon) playIcon.innerHTML = `<polygon points="5 3 19 12 5 21 5 3"></polygon>`;
+      if (playLabel) playLabel.textContent = "Play Voice";
+    }
+  }
+
   function playPronunciationAudio(text, audioUrl, langCode) {
+    // If currently playing, toggle to pause
+    if (isAudioPlaying) {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+      }
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      isAudioPlaying = false;
+      updatePlayButtonUI(false);
+      return;
+    }
+
     if (currentAudio) {
       currentAudio.pause();
       currentAudio = null;
     }
 
+    isAudioPlaying = true;
+    updatePlayButtonUI(true);
+
     if (audioUrl) {
       currentAudio = new Audio(audioUrl);
+      currentAudio.playbackRate = playbackSpeed;
+      currentAudio.onended = () => {
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
+      };
+      currentAudio.onpause = () => {
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
+      };
       const playPromise = currentAudio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
@@ -901,11 +991,24 @@
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         if (langCode) utterance.lang = langCode;
-        utterance.rate = 0.9;
+        utterance.rate = playbackSpeed;
+        utterance.onend = () => {
+          isAudioPlaying = false;
+          updatePlayButtonUI(false);
+        };
+        utterance.onerror = () => {
+          isAudioPlaying = false;
+          updatePlayButtonUI(false);
+        };
         window.speechSynthesis.speak(utterance);
+      } else {
+        isAudioPlaying = false;
+        updatePlayButtonUI(false);
       }
     } catch (e) {
       console.error("[SayIt] SpeechSynthesis error:", e);
+      isAudioPlaying = false;
+      updatePlayButtonUI(false);
     }
   }
 

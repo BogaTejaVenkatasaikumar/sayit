@@ -20,13 +20,14 @@ function SayItLogo({ isDark }) {
 function MiniPlayer({ src, text, langCode, isDark }) {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
 
   const speakFallback = () => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       if (langCode) u.lang = langCode;
-      u.rate = 0.9;
+      u.rate = speed;
       u.onend = () => setPlaying(false);
       u.onerror = () => setPlaying(false);
       setPlaying(true);
@@ -34,20 +35,34 @@ function MiniPlayer({ src, text, langCode, isDark }) {
     }
   };
 
+  const handleSpeedChange = (newSpeed) => {
+    setSpeed(newSpeed);
+    if (ref.current) {
+      ref.current.playbackRate = newSpeed;
+    }
+  };
+
   const toggle = () => {
+    if (playing) {
+      if (src && ref.current) {
+        ref.current.pause();
+      }
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      setPlaying(false);
+      return;
+    }
+
     if (src) {
       if (!ref.current) return;
-      if (playing) {
-        ref.current.pause();
-        setPlaying(false);
-      } else {
-        const p = ref.current.play();
-        if (p !== undefined) {
-          p.then(() => setPlaying(true)).catch((err) => {
-            console.warn("Audio element failed, falling back to speech synthesis:", err);
-            speakFallback();
-          });
-        }
+      ref.current.playbackRate = speed;
+      const p = ref.current.play();
+      if (p !== undefined) {
+        p.then(() => setPlaying(true)).catch((err) => {
+          console.warn("Audio element failed, falling back to speech synthesis:", err);
+          speakFallback();
+        });
       }
     } else {
       speakFallback();
@@ -58,23 +73,52 @@ function MiniPlayer({ src, text, langCode, isDark }) {
     const el = ref.current;
     if (!el) return;
     const onEnd = () => setPlaying(false);
+    const onPause = () => setPlaying(false);
     el.addEventListener("ended", onEnd);
-    return () => el.removeEventListener("ended", onEnd);
+    el.addEventListener("pause", onPause);
+    return () => {
+      el.removeEventListener("ended", onEnd);
+      el.removeEventListener("pause", onPause);
+    };
   }, [src]);
 
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center justify-between gap-2">
       {src && <audio ref={ref} src={src} preload="metadata" />}
-      <button
-        onClick={toggle}
-        className="flex items-center gap-1.5 text-white text-xs font-bold px-3.5 py-1.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-sm shadow-orange-500/20 active:scale-95"
-      >
-        {playing ? <Pause size={12} /> : <Play size={12} />}
-        {playing ? "Pause" : "Play Voice"}
-      </button>
-      <span className={`text-xs font-medium ${isDark ? "text-neutral-400" : "text-neutral-500"}`}>
-        {src ? "Native audio" : "Browser voice"}
-      </span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={toggle}
+          className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-sm shadow-orange-500/20 active:scale-95"
+        >
+          {playing ? <Pause size={12} /> : <Play size={12} />}
+          {playing ? "Pause" : "Play Voice"}
+        </button>
+        <span className={`text-[11px] font-medium ${isDark ? "text-neutral-400" : "text-neutral-500"}`}>
+          {src ? "Native audio" : "Browser voice"}
+        </span>
+      </div>
+
+      {/* Speed Controls */}
+      <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+        isDark ? "bg-[#1d1d22] border-neutral-700/80" : "bg-neutral-100 border-neutral-300"
+      }`}>
+        {[0.75, 1, 1.25].map((s) => (
+          <button
+            key={s}
+            onClick={() => handleSpeedChange(s)}
+            className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
+              speed === s
+                ? "bg-orange-500 text-white shadow-sm"
+                : isDark
+                ? "text-neutral-400 hover:text-white"
+                : "text-neutral-600 hover:text-neutral-900"
+            }`}
+            title={`Set playback speed to ${s}x`}
+          >
+            {s}x
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -468,18 +512,6 @@ export default function Popup() {
                   </span>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Pronunciation Tip */}
-          {result.pronunciation_tip && (
-            <div className={`px-4 py-3 text-xs leading-relaxed ${
-              isDark
-                ? "text-neutral-300 bg-orange-950/20 border-t border-orange-900/30"
-                : "text-neutral-800 bg-orange-50/80 border-t border-orange-100"
-            }`}>
-              <span className="font-bold text-orange-500">Tip: </span>
-              {result.pronunciation_tip}
             </div>
           )}
         </div>

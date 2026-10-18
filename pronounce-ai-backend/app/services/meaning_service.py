@@ -118,13 +118,18 @@ class MeaningService:
     """Universal Meaning & Translation Engine supporting all languages and translatable definitions."""
 
     def __init__(self):
-        self.timeout = 3.5
+        self.timeout = 2.0
+        self._cache: Dict[str, str] = {}
 
     def translate_text_sync(self, text: str, target_lang: str = "en", source_lang: str = "auto") -> str:
         """Synchronously translate any text into target_lang using Google Translate GTX."""
         if not text or not text.strip() or target_lang == source_lang or target_lang == "auto":
             return text
         
+        cache_key = f"trans:{source_lang}:{target_lang}:{text.strip()}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
         clean = text.strip()
         url = (
             f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source_lang}&tl={target_lang}&dt=t&q="
@@ -137,6 +142,7 @@ class MeaningService:
                 if data and data[0]:
                     translated = "".join([part[0] for part in data[0] if part and part[0]]).strip()
                     if translated:
+                        self._cache[cache_key] = translated
                         return translated
         except Exception as e:
             logger.warning(f"Translation to '{target_lang}' failed: {str(e)}")
@@ -153,76 +159,98 @@ class MeaningService:
             return ""
 
         lower = clean.lower()
+        cache_key = f"meaning:{lower}:{language_code}:{target_lang}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-        # 1. Check local high-priority dictionary for instant response
+        # 1. Check local high-priority dictionary for instant 0ms response
         if lower in MULTILINGUAL_MEANINGS:
             val = MULTILINGUAL_MEANINGS[lower]
-            if target_lang != "en":
-                return self.translate_text_sync(val, target_lang=target_lang, source_lang="en")
-            return val
+            res = val if target_lang == "en" else self.translate_text_sync(val, target_lang=target_lang, source_lang="en")
+            self._cache[cache_key] = res
+            return res
         if clean in MULTILINGUAL_MEANINGS:
             val = MULTILINGUAL_MEANINGS[clean]
-            if target_lang != "en":
-                return self.translate_text_sync(val, target_lang=target_lang, source_lang="en")
-            return val
+            res = val if target_lang == "en" else self.translate_text_sync(val, target_lang=target_lang, source_lang="en")
+            self._cache[cache_key] = res
+            return res
 
         definition_found: Optional[str] = None
 
-        # 2. Universal Dictionary & Translation Resolution (Google GTX)
-        url = (
-            f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=bd&dt=md&dt=ss&dt=ex&q="
-            + urllib.parse.quote(clean)
-        )
-        req = urllib.request.Request(url, headers=HEADERS)
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+        # 2. Free Dictionary API (Fastest & Most Authoritative for English)
+        if language_code in ("en", "auto") or not language_code:
+            try:
+                dict_url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{urllib.parse.quote(clean)}"
+                dict_req = urllib.request.Request(dict_url, headers=HEADERS)
+                with urllib.request.urlopen(dict_req, timeout=1.8) as dict_resp:
+                    dict_data = json.loads(dict_resp.read().decode("utf-8"))
+                    if isinstance(dict_data, list) and dict_data and dict_data[0].get("meanings"):
+                        m = dict_data[0]["meanings"][0]
+                        part = m.get("partOfSpeech", "")
+                        defs = m.get("definitions", [])
+                        if defs and defs[0].get("definition"):
+                            d_text = defs[0]["definition"].strip().rstrip(".") + "."
+                            pos_prefix = f"({part}) " if part else ""
+                            definition_found = pos_prefix + d_text
+            except Exception:
+                pass
 
-                # Check direct dictionary definitions (Section 11/12)
-                for section in data:
-                    if isinstance(section, list) and section and isinstance(section[0], list):
-                        if len(section[0]) >= 2 and isinstance(section[0][0], str) and section[0][0] in (
-                            "noun", "verb", "adjective", "adverb", "interjection", "pronoun", "preposition", "conjunction"
-                        ):
-                            for pos_entry in section:
-                                if len(pos_entry) >= 2 and isinstance(pos_entry[1], list) and pos_entry[1]:
-                                    for def_item in pos_entry[1]:
-                                        if isinstance(def_item, list) and def_item and isinstance(def_item[0], str):
-                                            d = def_item[0].strip()
-                                            if d and len(d) > 5:
-                                                definition_found = d[0].upper() + d[1:].rstrip(".") + "."
-                                                break
-                                if definition_found:
-                                    break
-                    if definition_found:
-                        break
+        # 3. Universal Dictionary & Translation Resolution (Google GTX)
+        if not definition_found:
+            url = (
+                f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=bd&dt=md&dt=ss&dt=ex&q="
+                + urllib.parse.quote(clean)
+            )
+            req = urllib.request.Request(url, headers=HEADERS)
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
 
-                # Check translated meaning if source was non-English
-                if not definition_found:
-                    translated_en = "".join([part[0] for part in data[0] if part and part[0]]).strip()
-                    detected_src = data[2] if len(data) > 2 and isinstance(data[2], str) else ""
+                    # Check direct dictionary definitions (Section 11/12)
+                    for section in data:
+                        if isinstance(section, list) and section and isinstance(section[0], list):
+                            if len(section[0]) >= 2 and isinstance(section[0][0], str) and section[0][0] in (
+                                "noun", "verb", "adjective", "adverb", "interjection", "pronoun", "preposition", "conjunction"
+                            ):
+                                for pos_entry in section:
+                                    if len(pos_entry) >= 2 and isinstance(pos_entry[1], list) and pos_entry[1]:
+                                        for def_item in pos_entry[1]:
+                                            if isinstance(def_item, list) and def_item and isinstance(def_item[0], str):
+                                                d = def_item[0].strip()
+                                                if d and len(d) > 5:
+                                                    definition_found = d[0].upper() + d[1:].rstrip(".") + "."
+                                                    break
+                                    if definition_found:
+                                        break
+                        if definition_found:
+                            break
 
-                    if translated_en and (translated_en.lower() != clean.lower() or (detected_src and detected_src not in ("en", ""))):
-                        lang_label = language_name if language_name and language_name.lower() != "auto" else (detected_src.upper() if detected_src else "original language")
-                        definition_found = f'"{clean}" means "{translated_en}" in {lang_label}.'
-                    elif len(data) > 1 and data[1]:
-                        parts = []
-                        for item in data[1][:2]:
-                            pos = item[0]
-                            terms = ", ".join(item[1][:3])
-                            parts.append(f"({pos}) {terms}")
-                        if parts:
-                            definition_found = "; ".join(parts) + "."
+                    # Check translated meaning if source was non-English
+                    if not definition_found:
+                        translated_en = "".join([part[0] for part in data[0] if part and part[0]]).strip()
+                        detected_src = data[2] if len(data) > 2 and isinstance(data[2], str) else ""
 
-        except Exception as e:
-            logger.debug(f"Universal dictionary lookup error for '{clean}': {str(e)}")
+                        if translated_en and (translated_en.lower() != clean.lower() or (detected_src and detected_src not in ("en", ""))):
+                            lang_label = language_name if language_name and language_name.lower() != "auto" else (detected_src.upper() if detected_src else "original language")
+                            definition_found = f'"{clean}" means "{translated_en}" in {lang_label}.'
+                        elif len(data) > 1 and data[1]:
+                            parts = []
+                            for item in data[1][:2]:
+                                pos = item[0]
+                                terms = ", ".join(item[1][:3])
+                                parts.append(f"({pos}) {terms}")
+                            if parts:
+                                definition_found = "; ".join(parts) + "."
 
-        # 3. Datamuse / WordNet English fallback
+            except Exception as e:
+                logger.debug(f"Universal dictionary lookup error for '{clean}': {str(e)}")
+
+        # 4. Datamuse / WordNet English fallback
         if not definition_found:
             try:
                 dm_url = f"https://api.datamuse.com/words?sp={urllib.parse.quote(clean)}&md=d&max=1"
                 dm_req = urllib.request.Request(dm_url, headers=HEADERS)
-                with urllib.request.urlopen(dm_req, timeout=2.0) as resp:
+                with urllib.request.urlopen(dm_req, timeout=1.5) as resp:
                     dm_data = json.loads(resp.read().decode("utf-8"))
                     if dm_data and dm_data[0].get("defs"):
                         raw = dm_data[0]["defs"][0]
@@ -231,7 +259,7 @@ class MeaningService:
             except Exception:
                 pass
 
-        # 4. Fallback description
+        # 5. Fallback description
         if not definition_found:
             if language_name and language_name.lower() != "english":
                 definition_found = f"Vocabulary term or expression in {language_name}."
@@ -240,8 +268,9 @@ class MeaningService:
 
         # Translate the definition if target language is specified
         if target_lang != "en":
-            return self.translate_text_sync(definition_found, target_lang=target_lang, source_lang="en")
+            definition_found = self.translate_text_sync(definition_found, target_lang=target_lang, source_lang="en")
 
+        self._cache[cache_key] = definition_found
         return definition_found
 
     async def get_meaning(self, text: str, language_code: str = "auto", language_name: str = "English", target_lang: str = "en") -> str:
