@@ -150,6 +150,7 @@ async function standaloneLookup(word, language = "auto") {
         if (meaning) {
           const syllables = extractSyllables(clean, ipa);
           const guide = buildGuide(syllables, ipa);
+          const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
 
           const result = {
             text: word,
@@ -163,7 +164,7 @@ async function standaloneLookup(word, language = "auto") {
               stressed_syllable: syllables[0] || clean,
               beginner_guide: guide,
             },
-            audio: null, // Browser Web Speech API handles playback with 0ms delay
+            audio: { url: ttsUrl, dataUrl: ttsUrl },
             meaning: meaning,
           };
 
@@ -216,6 +217,7 @@ async function standaloneLookup(word, language = "auto") {
         if (meaning) {
           const syllables = extractSyllables(clean, ipa);
           const guide = buildGuide(syllables, ipa);
+          const finalAudio = audioUrl || `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
 
           const result = {
             text: word,
@@ -229,7 +231,7 @@ async function standaloneLookup(word, language = "auto") {
               stressed_syllable: syllables[0] || clean,
               beginner_guide: guide,
             },
-            audio: audioUrl ? { url: audioUrl, dataUrl: audioUrl } : null,
+            audio: { url: finalAudio, dataUrl: finalAudio },
             meaning: meaning,
           };
 
@@ -287,6 +289,8 @@ async function standaloneLookup(word, language = "auto") {
         pt: "Portuguese", ru: "Russian",
       };
 
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${detectedLang}&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
+
       const result = {
         text: word,
         word: word,
@@ -299,7 +303,7 @@ async function standaloneLookup(word, language = "auto") {
           stressed_syllable: syllables[0] || clean,
           beginner_guide: guide,
         },
-        audio: null,
+        audio: { url: ttsUrl, dataUrl: ttsUrl },
         meaning: meaning,
       };
 
@@ -311,6 +315,7 @@ async function standaloneLookup(word, language = "auto") {
   }
 
   // 4. Emergency Fallback
+  const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(clean.slice(0, 150))}`;
   const baseline = {
     text: word,
     word: word,
@@ -323,7 +328,7 @@ async function standaloneLookup(word, language = "auto") {
       stressed_syllable: clean,
       beginner_guide: clean,
     },
-    audio: null,
+    audio: { url: ttsUrl, dataUrl: ttsUrl },
     meaning: `Text: "${clean}"`,
   };
 

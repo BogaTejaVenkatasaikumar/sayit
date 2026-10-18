@@ -16,18 +16,80 @@ function SayItLogo({ isDark }) {
   );
 }
 
+const BCP47_MAP = {
+  en: "en-US",
+  hi: "hi-IN",
+  te: "te-IN",
+  ta: "ta-IN",
+  kn: "kn-IN",
+  ml: "ml-IN",
+  bn: "bn-IN",
+  es: "es-ES",
+  fr: "fr-FR",
+  de: "de-DE",
+  ja: "ja-JP",
+  ko: "ko-KR",
+  zh: "zh-CN",
+  ar: "ar-SA",
+  it: "it-IT",
+  pt: "pt-BR",
+  ru: "ru-RU",
+};
+
+function getBestVoice(langCode, gender) {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) return null;
+
+  const code = (langCode || "en").toLowerCase();
+  const bcp = BCP47_MAP[code] || code;
+
+  const langVoices = voices.filter(
+    (v) =>
+      v.lang.toLowerCase() === bcp.toLowerCase() ||
+      v.lang.toLowerCase().replace("_", "-") === bcp.toLowerCase() ||
+      v.lang.toLowerCase().startsWith(code)
+  );
+
+  const pool = langVoices.length > 0 ? langVoices : voices;
+
+  const femaleKeywords = ["zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "google us english", "google uk english female"];
+  const maleKeywords = ["david", "mark", "guy", "male", "george", "daniel", "google uk english male"];
+
+  if (gender === "female") {
+    const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+    if (match) return match;
+  } else {
+    const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+    if (match) return match;
+  }
+
+  return pool[0] || null;
+}
+
 // ── Audio Player for popup ───────────────────────────────────────────────────
 function MiniPlayer({ src, text, langCode, isDark }) {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [gender, setGender] = useState(() => localStorage.getItem("sayit_voice_gender") || "female");
+
+  const handleGenderChange = (g) => {
+    setGender(g);
+    localStorage.setItem("sayit_voice_gender", g);
+  };
 
   const speakFallback = () => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      if (langCode) u.lang = langCode;
+      const code = (langCode || "en").toLowerCase();
+      u.lang = BCP47_MAP[code] || code;
       u.rate = speed;
+
+      const voice = getBestVoice(code, gender);
+      if (voice) u.voice = voice;
+
       u.onend = () => setPlaying(false);
       u.onerror = () => setPlaying(false);
       setPlaying(true);
@@ -51,6 +113,11 @@ function MiniPlayer({ src, text, langCode, isDark }) {
         window.speechSynthesis.cancel();
       }
       setPlaying(false);
+      return;
+    }
+
+    if (gender === "male") {
+      speakFallback();
       return;
     }
 
@@ -91,30 +158,60 @@ function MiniPlayer({ src, text, langCode, isDark }) {
           {playing ? "Pause" : "Play Voice"}
         </button>
         <span className={`text-[11px] font-medium ${isDark ? "text-neutral-400" : "text-neutral-500"}`}>
-          {src ? "Native audio" : "Browser voice"}
+          {langCode ? `${langCode.toUpperCase()}` : (src ? "Native audio" : "Browser voice")}
         </span>
       </div>
 
-      {/* Speed Controls */}
-      <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-        isDark ? "bg-[#1d1d22] border-neutral-700/80" : "bg-neutral-100 border-neutral-300"
-      }`}>
-        {[0.75, 1, 1.25].map((s) => (
+      <div className="flex items-center gap-1.5">
+        {/* Gender Toggle */}
+        <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+          isDark ? "bg-[#1d1d22] border-neutral-700/80" : "bg-neutral-100 border-neutral-300"
+        }`}>
           <button
-            key={s}
-            onClick={() => handleSpeedChange(s)}
-            className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
-              speed === s
+            onClick={() => handleGenderChange("female")}
+            className={`px-1.5 py-0.5 text-xs rounded transition-all ${
+              gender === "female"
                 ? "bg-orange-500 text-white shadow-sm"
-                : isDark
-                ? "text-neutral-400 hover:text-white"
-                : "text-neutral-600 hover:text-neutral-900"
+                : "opacity-60 hover:opacity-100"
             }`}
-            title={`Set playback speed to ${s}x`}
+            title="Female Voice"
           >
-            {s}x
+            👩
           </button>
-        ))}
+          <button
+            onClick={() => handleGenderChange("male")}
+            className={`px-1.5 py-0.5 text-xs rounded transition-all ${
+              gender === "male"
+                ? "bg-orange-500 text-white shadow-sm"
+                : "opacity-60 hover:opacity-100"
+            }`}
+            title="Male Voice"
+          >
+            👨
+          </button>
+        </div>
+
+        {/* Speed Controls */}
+        <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+          isDark ? "bg-[#1d1d22] border-neutral-700/80" : "bg-neutral-100 border-neutral-300"
+        }`}>
+          {[0.75, 1, 1.25].map((s) => (
+            <button
+              key={s}
+              onClick={() => handleSpeedChange(s)}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
+                speed === s
+                  ? "bg-orange-500 text-white shadow-sm"
+                  : isDark
+                  ? "text-neutral-400 hover:text-white"
+                  : "text-neutral-600 hover:text-neutral-900"
+              }`}
+              title={`Set playback speed to ${s}x`}
+            >
+              {s}x
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

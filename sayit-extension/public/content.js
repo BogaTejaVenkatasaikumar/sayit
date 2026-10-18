@@ -393,9 +393,38 @@
     .sayit-play-btn:hover {
       transform: scale(1.04);
     }
-    .sayit-audio-info {
+    .sayit-audio-controls {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .sayit-gender-selector {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      background: var(--chip-bg);
+      border: 1px solid var(--chip-border);
+      border-radius: 8px;
+      padding: 2px;
+    }
+    .sayit-gender-btn {
+      background: transparent;
+      border: none;
+      border-radius: 6px;
       font-size: 11px;
-      color: var(--text-muted);
+      padding: 2px 4px;
+      cursor: pointer;
+      line-height: 1;
+      opacity: 0.5;
+      transition: all 0.15s;
+    }
+    .sayit-gender-btn:hover {
+      opacity: 0.85;
+    }
+    .sayit-gender-btn.active {
+      background: var(--chip-active-bg);
+      border: 1px solid var(--chip-active-border);
+      opacity: 1;
     }
     .sayit-speed-selector {
       display: flex;
@@ -534,6 +563,7 @@
   let currentAudio = null;
   let playbackSpeed = 1.0;
   let isAudioPlaying = false;
+  let selectedGender = localStorage.getItem("sayit_voice_gender") || "female";
 
   // Track cursor position only so when user selects text, we know where to open the box
   window.addEventListener(
@@ -825,12 +855,18 @@
             </svg>
             <span id="sayit-card-play-label">Play Voice</span>
           </button>
-          <span class="sayit-audio-info">${audioUrl ? "Native audio" : "Browser voice"}</span>
+          <span class="sayit-audio-info">${langName ? `${langName}` : (audioUrl ? "Native audio" : "Browser voice")}</span>
         </div>
-        <div class="sayit-speed-selector">
-          <button class="sayit-speed-btn ${playbackSpeed === 0.75 ? 'active' : ''}" data-speed="0.75" title="0.75x speed">0.75x</button>
-          <button class="sayit-speed-btn ${playbackSpeed === 1.0 ? 'active' : ''}" data-speed="1.0" title="Normal 1x speed">1x</button>
-          <button class="sayit-speed-btn ${playbackSpeed === 1.25 ? 'active' : ''}" data-speed="1.25" title="1.25x speed">1.25x</button>
+        <div class="sayit-audio-controls">
+          <div class="sayit-gender-selector" title="Switch voice: Female / Male">
+            <button class="sayit-gender-btn ${selectedGender === 'female' ? 'active' : ''}" data-gender="female" title="Female Voice">👩</button>
+            <button class="sayit-gender-btn ${selectedGender === 'male' ? 'active' : ''}" data-gender="male" title="Male Voice">👨</button>
+          </div>
+          <div class="sayit-speed-selector">
+            <button class="sayit-speed-btn ${playbackSpeed === 0.75 ? 'active' : ''}" data-speed="0.75" title="0.75x speed">0.75x</button>
+            <button class="sayit-speed-btn ${playbackSpeed === 1.0 ? 'active' : ''}" data-speed="1.0" title="Normal 1x speed">1x</button>
+            <button class="sayit-speed-btn ${playbackSpeed === 1.25 ? 'active' : ''}" data-speed="1.25" title="1.25x speed">1.25x</button>
+          </div>
         </div>
       </div>
 
@@ -868,13 +904,24 @@
       ` : ''}
     `;
 
-    // Universal audio playback with Play/Pause state and Speed controls
+    // Universal audio playback with Play/Pause state, Speed controls, and Voice Gender
     const playBtn = bodyContent.querySelector("#sayit-card-play-audio");
     if (playBtn) {
       playBtn.addEventListener("click", () => {
         playPronunciationAudio(text, audioUrl, langCode);
       });
     }
+
+    const genderButtons = bodyContent.querySelectorAll(".sayit-gender-btn");
+    genderButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const g = btn.getAttribute("data-gender");
+        if (!g) return;
+        selectedGender = g;
+        localStorage.setItem("sayit_voice_gender", g);
+        genderButtons.forEach((b) => b.classList.toggle("active", b === btn));
+      });
+    });
 
     const speedButtons = bodyContent.querySelectorAll(".sayit-speed-btn");
     speedButtons.forEach((btn) => {
@@ -989,6 +1036,28 @@
     isAudioPlaying = true;
     updatePlayButtonUI(true);
 
+    if (selectedGender === "male") {
+      // Prioritize male voice via browser speech synthesis
+      speakWithBrowser(text, langCode, () => {
+        // Fallback to audioUrl if speech synthesis fails
+        if (audioUrl) {
+          currentAudio = new Audio(audioUrl);
+          currentAudio.playbackRate = playbackSpeed;
+          currentAudio.onended = () => {
+            isAudioPlaying = false;
+            currentAudio = null;
+            updatePlayButtonUI(false);
+          };
+          currentAudio.play().catch(() => {
+            isAudioPlaying = false;
+            updatePlayButtonUI(false);
+          });
+        }
+      });
+      return;
+    }
+
+    // Default Female / Studio voice
     if (audioUrl) {
       currentAudio = new Audio(audioUrl);
       currentAudio.playbackRate = playbackSpeed;
@@ -1009,13 +1078,70 @@
     }
   }
 
-  function speakWithBrowser(text, langCode) {
+  const BCP47_MAP = {
+    en: "en-US",
+    hi: "hi-IN",
+    te: "te-IN",
+    ta: "ta-IN",
+    kn: "kn-IN",
+    ml: "ml-IN",
+    bn: "bn-IN",
+    es: "es-ES",
+    fr: "fr-FR",
+    de: "de-DE",
+    ja: "ja-JP",
+    ko: "ko-KR",
+    zh: "zh-CN",
+    ar: "ar-SA",
+    it: "it-IT",
+    pt: "pt-BR",
+    ru: "ru-RU",
+  };
+
+  function getBestVoice(langCode, gender) {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return null;
+
+    const code = (langCode || "en").toLowerCase();
+    const bcp = BCP47_MAP[code] || code;
+
+    // Filter by language
+    const langVoices = voices.filter(
+      (v) =>
+        v.lang.toLowerCase() === bcp.toLowerCase() ||
+        v.lang.toLowerCase().replace("_", "-") === bcp.toLowerCase() ||
+        v.lang.toLowerCase().startsWith(code)
+    );
+
+    const pool = langVoices.length > 0 ? langVoices : voices;
+
+    const femaleKeywords = ["zira", "aria", "jenny", "samantha", "victoria", "karen", "female", "google us english", "google uk english female"];
+    const maleKeywords = ["david", "mark", "guy", "male", "george", "daniel", "google uk english male"];
+
+    if (gender === "female") {
+      const match = pool.find((v) => femaleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+      if (match) return match;
+    } else {
+      const match = pool.find((v) => maleKeywords.some((k) => v.name.toLowerCase().includes(k)));
+      if (match) return match;
+    }
+
+    return pool[0] || null;
+  }
+
+  function speakWithBrowser(text, langCode, onErrorCallback = null) {
     try {
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        if (langCode) utterance.lang = langCode;
+        const code = (langCode || "en").toLowerCase();
+        utterance.lang = BCP47_MAP[code] || code;
         utterance.rate = playbackSpeed;
+
+        const voice = getBestVoice(code, selectedGender);
+        if (voice) utterance.voice = voice;
+
         utterance.onend = () => {
           isAudioPlaying = false;
           updatePlayButtonUI(false);
@@ -1023,16 +1149,19 @@
         utterance.onerror = () => {
           isAudioPlaying = false;
           updatePlayButtonUI(false);
+          if (onErrorCallback) onErrorCallback();
         };
         window.speechSynthesis.speak(utterance);
       } else {
         isAudioPlaying = false;
         updatePlayButtonUI(false);
+        if (onErrorCallback) onErrorCallback();
       }
     } catch (e) {
       console.error("[SayIt] SpeechSynthesis error:", e);
       isAudioPlaying = false;
       updatePlayButtonUI(false);
+      if (onErrorCallback) onErrorCallback();
     }
   }
 
