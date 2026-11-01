@@ -686,7 +686,9 @@
       card.remove();
       activeCard = null;
       isMouseOverCard = false;
-      if (currentAudio) currentAudio.pause();
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+      if (window.speechSynthesis) { window.speechSynthesis.cancel(); }
+      isAudioPlaying = false;
     });
 
     // Theme Toggle Handler
@@ -721,7 +723,9 @@
       activeCard.remove();
       activeCard = null;
       isMouseOverCard = false;
-      if (currentAudio) currentAudio.pause();
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+      if (window.speechSynthesis) { window.speechSynthesis.cancel(); }
+      isAudioPlaying = false;
     } else {
       const selected = window.getSelection()?.toString()?.trim();
       showCursorCard(selected || "");
